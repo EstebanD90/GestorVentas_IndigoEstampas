@@ -13,6 +13,7 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   deleteClient: (id) => electron.ipcRenderer.invoke("delete-client", id),
   registerClientPayment: (p) => electron.ipcRenderer.invoke("register-client-payment", p),
   getClientPayments: (id) => electron.ipcRenderer.invoke("get-client-payments", id),
+  deleteClientPayment: (id) => electron.ipcRenderer.invoke("delete-client-payment", id),
   // Suppliers
   getSuppliers: () => electron.ipcRenderer.invoke("get-suppliers"),
   addSupplier: (s) => electron.ipcRenderer.invoke("add-supplier", s),
@@ -31,12 +32,16 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   getDashboardStats: () => electron.ipcRenderer.invoke("get-dashboard-stats"),
   printTicket: (saleData) => electron.ipcRenderer.invoke("print-ticket", saleData),
   openInvoicesFolder: () => electron.ipcRenderer.invoke("open-invoices-folder"),
+  getBusinessSettings: () => electron.ipcRenderer.invoke("get-business-settings"),
+  updateBusinessSettings: (settings) => electron.ipcRenderer.invoke("update-business-settings", settings),
   selectImage: () => electron.ipcRenderer.invoke("select-image"),
   getImageBase64: (path) => electron.ipcRenderer.invoke("get-image-base64", path),
   // Backup/Restore
   backupDB: () => electron.ipcRenderer.invoke("backup-db"),
   backupFull: () => electron.ipcRenderer.invoke("backup-full"),
   restoreDB: () => electron.ipcRenderer.invoke("restore-db"),
+  restoreFull: () => electron.ipcRenderer.invoke("restore-full"),
+  optimizeDB: () => electron.ipcRenderer.invoke("optimize-db"),
   checkUpdates: () => electron.ipcRenderer.invoke("check-updates"),
   // System
   exportData: (type, data) => electron.ipcRenderer.invoke("export-data", { type, data })

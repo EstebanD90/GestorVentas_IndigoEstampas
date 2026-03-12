@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Save, Search, Download } from 'lucide-react';
+import { Toast } from '@/components/ui/Toast';
 
 export default function PriceList() {
   const [products, setProducts] = useState<any[]>([]);
   const [search, setSearch] = useState('');
   const [editedProducts, setEditedProducts] = useState<{[key: number]: any}>({});
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     loadProducts();
@@ -71,17 +73,27 @@ export default function PriceList() {
             Ganancia: profit.toFixed(2)
         };
     });
-    await window.electronAPI.exportData('ListaDePrecios', dataToExport);
+    const result = await window.electronAPI.exportData('ListaDePrecios', dataToExport);
+    if (result && result.success) {
+      setToast({ message: 'Datos exportados correctamente a Excel', type: 'success' });
+    }
   }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {toast && (
+        <Toast 
+          message={toast.message} 
+          type={toast.type} 
+          onClose={() => setToast(null)} 
+        />
+      )}
       <div className="flex justify-between items-center">
         <h2 className="text-3xl font-bold tracking-tight">Lista de Precios</h2>
         <button 
           onClick={handleExport}
           className="flex items-center gap-2 bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors"
-          title="Exportar a CSV"
+          title="Exportar a Excel"
         >
           <Download size={20} /> Exportar
         </button>

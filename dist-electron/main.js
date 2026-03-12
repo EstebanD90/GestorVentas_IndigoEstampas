@@ -26,7 +26,9 @@ function _mergeNamespaces(n, m) {
   }
   return Object.freeze(Object.defineProperty(n, Symbol.toStringTag, { value: "Module" }));
 }
-const APP_NAME = "INDIGO ESTAMPAS";
+const APP_NAME = "Indigo Estampas";
+const APP_VERSION = "1.1.0";
+const UPDATE_URL = "https://raw.githubusercontent.com/EstebanD90/GestorVentas_IndigoEstampas/main/version.json";
 var commonjsGlobal = typeof globalThis !== "undefined" ? globalThis : typeof window !== "undefined" ? window : typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : {};
 function getDefaultExportFromCjs(x) {
   return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
@@ -2271,8 +2273,9 @@ function initDB() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id INTEGER NOT NULL,
       amount REAL NOT NULL,
+      method TEXT,
+      notes TEXT,
       date DATETIME DEFAULT CURRENT_TIMESTAMP,
-      note TEXT,
       FOREIGN KEY(client_id) REFERENCES clients(id)
     )
   `);
@@ -2293,7 +2296,33 @@ function initDB() {
   } catch (e) {
   }
   try {
-    db.prepare('ALTER TABLE sales ADD COLUMN payment_status TEXT DEFAULT "paid"').run();
+    db.prepare("ALTER TABLE client_payments ADD COLUMN method TEXT").run();
+  } catch (e) {
+  }
+  try {
+    db.prepare("ALTER TABLE client_payments ADD COLUMN notes TEXT").run();
+  } catch (e) {
+  }
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS business_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      name TEXT,
+      address TEXT,
+      phone TEXT,
+      email TEXT,
+      instagram TEXT,
+      facebook TEXT,
+      cuit TEXT,
+      footer_message TEXT,
+      logo_path TEXT
+    )
+  `).run();
+  const settings = db.prepare("SELECT * FROM business_settings WHERE id = 1").get();
+  if (!settings) {
+    db.prepare("INSERT INTO business_settings (id, name) VALUES (1, 'INDIGO ESTAMPAS')").run();
+  }
+  try {
+    db.prepare("ALTER TABLE sales ADD COLUMN payment_status TEXT DEFAULT 'paid'").run();
   } catch (e) {
   }
 }
@@ -2305,14 +2334,6 @@ const getClients = () => db.prepare("SELECT * FROM clients ORDER BY name").all()
 const addClient = (c) => db.prepare("INSERT INTO clients (name, email, phone, address, balance) VALUES (@name, @email, @phone, @address, 0)").run(c);
 const updateClient = (c) => db.prepare("UPDATE clients SET name=@name, email=@email, phone=@phone, address=@address WHERE id=@id").run(c);
 const deleteClient = (id) => db.prepare("DELETE FROM clients WHERE id = ?").run(id);
-const registerClientPayment = (payment) => {
-  const transaction = db.transaction((p) => {
-    db.prepare("INSERT INTO client_payments (client_id, amount, note) VALUES (@client_id, @amount, @note)").run(p);
-    db.prepare("UPDATE clients SET balance = balance - @amount WHERE id = @client_id").run(p);
-  });
-  return transaction(payment);
-};
-const getClientPayments = (clientId) => db.prepare("SELECT * FROM client_payments WHERE client_id = ? ORDER BY date DESC").all(clientId);
 const getSuppliers = () => db.prepare("SELECT * FROM suppliers ORDER BY name").all();
 const addSupplier = (s) => db.prepare("INSERT INTO suppliers (name, email, phone, address) VALUES (@name, @email, @phone, @address)").run(s);
 const updateSupplier = (s) => db.prepare("UPDATE suppliers SET name=@name, email=@email, phone=@phone, address=@address WHERE id=@id").run(s);
@@ -2377,28 +2398,25 @@ const clearSalesHistory = () => {
     return { success: false, error: String(error) };
   }
 };
-const createSale = (saleData) => {
-  const createSaleTransaction = db.transaction((sale) => {
-    let total = 0;
-    for (const item of sale.items) {
-      total += item.price * item.quantity;
-    }
-    const paymentStatus = sale.payment_status || "paid";
-    const result = db.prepare("INSERT INTO sales (client_id, total, payment_status) VALUES (?, ?, ?)").run(sale.client_id, total, paymentStatus);
+const createSale = (data) => {
+  const { client_id, items, payment_status } = data;
+  const total = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  const transaction = db.transaction(() => {
+    const result = db.prepare("INSERT INTO sales (client_id, total, payment_status) VALUES (?, ?, ?)").run(client_id, total, payment_status || "paid");
     const saleId = result.lastInsertRowid;
-    if (paymentStatus === "pending" && sale.client_id) {
-      db.prepare("UPDATE clients SET balance = balance + ? WHERE id = ?").run(total, sale.client_id);
-    }
     const insertItem = db.prepare("INSERT INTO sale_items (sale_id, product_id, quantity, price_at_sale, cost_at_sale) VALUES (?, ?, ?, ?, ?)");
     const updateStock = db.prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
-    for (const item of sale.items) {
+    for (const item of items) {
       const product = db.prepare("SELECT cost FROM products WHERE id = ?").get(item.id);
       insertItem.run(saleId, item.id, item.quantity, item.price, product.cost);
       updateStock.run(item.quantity, item.id);
     }
+    if (payment_status === "pending" && client_id) {
+      db.prepare("UPDATE clients SET balance = balance + ? WHERE id = ?").run(total, client_id);
+    }
     return saleId;
   });
-  return createSaleTransaction(saleData);
+  return transaction();
 };
 const getDashboardStats = () => {
   const salesCount = db.prepare("SELECT count(*) as count FROM sales").get();
@@ -2448,12 +2466,50 @@ const getDashboardStats = () => {
     expensesByCategory
   };
 };
-const backupDB = (targetPath) => {
+const backupDB = (destPath) => {
   try {
-    db.backup(targetPath);
+    fs.copyFileSync(dbPath, destPath);
     return { success: true };
-  } catch (error) {
-    return { success: false, error: String(error) };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+};
+const getBusinessSettings = () => {
+  return db.prepare("SELECT * FROM business_settings WHERE id = 1").get();
+};
+const updateBusinessSettings = (settings) => {
+  const fields = Object.keys(settings).filter((k) => k !== "id").map((k) => `${k}=@${k}`).join(", ");
+  return db.prepare(`UPDATE business_settings SET ${fields} WHERE id = 1`).run(settings);
+};
+const registerClientPayment = (data) => {
+  const { client_id, amount, method, notes, date } = data;
+  const transaction = db.transaction(() => {
+    db.prepare("INSERT INTO client_payments (client_id, amount, method, notes, date) VALUES (?, ?, ?, ?, ?)").run(client_id, amount, method, notes, date || (/* @__PURE__ */ new Date()).toISOString());
+    db.prepare("UPDATE clients SET balance = balance - ? WHERE id = ?").run(amount, client_id);
+  });
+  try {
+    transaction();
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+};
+const getClientPayments = (clientId) => {
+  return db.prepare("SELECT * FROM client_payments WHERE client_id = ? ORDER BY date DESC").all(clientId);
+};
+const deleteClientPayment = (id) => {
+  const transaction = db.transaction((paymentId) => {
+    const payment = db.prepare("SELECT client_id, amount FROM client_payments WHERE id = ?").get(paymentId);
+    if (payment) {
+      db.prepare("UPDATE clients SET balance = balance + ? WHERE id = ?").run(payment.amount, payment.client_id);
+      db.prepare("DELETE FROM client_payments WHERE id = ?").run(paymentId);
+    }
+  });
+  try {
+    transaction(id);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
   }
 };
 const restoreDB = (sourcePath) => {
@@ -2464,6 +2520,14 @@ const restoreDB = (sourcePath) => {
     return { success: true };
   } catch (error) {
     return { success: false, error: String(error) };
+  }
+};
+const optimizeDB = () => {
+  try {
+    db.exec("VACUUM");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
   }
 };
 const __filename$1 = fileURLToPath(import.meta.url);
@@ -2510,6 +2574,8 @@ app.on("activate", () => {
 });
 app.whenReady().then(() => {
   initDB();
+  ipcMain.handle("get-business-settings", () => getBusinessSettings());
+  ipcMain.handle("update-business-settings", (_, settings) => updateBusinessSettings(settings));
   ipcMain.handle("get-products", () => getProducts());
   ipcMain.handle("add-product", (_, p) => addProduct(p));
   ipcMain.handle("update-product", (_, p) => updateProduct(p));
@@ -2520,6 +2586,7 @@ app.whenReady().then(() => {
   ipcMain.handle("delete-client", (_, id) => deleteClient(id));
   ipcMain.handle("register-client-payment", (_, p) => registerClientPayment(p));
   ipcMain.handle("get-client-payments", (_, id) => getClientPayments(id));
+  ipcMain.handle("delete-client-payment", (_, id) => deleteClientPayment(id));
   ipcMain.handle("get-suppliers", () => getSuppliers());
   ipcMain.handle("add-supplier", (_, s) => addSupplier(s));
   ipcMain.handle("update-supplier", (_, s) => updateSupplier(s));
@@ -2556,16 +2623,13 @@ app.whenReady().then(() => {
     const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const fileName = `Venta_${saleData.id || "NUEVA"}_${timestamp}.pdf`;
     const fullPath = path.join(invoicesPath, fileName);
+    const settings = getBusinessSettings();
+    const bizName = settings?.name || APP_NAME;
     let logoBase64 = "";
-    const possibleLogos = ["logo.png", "logo.jpg", "logo.jpeg"];
-    for (const logoName of possibleLogos) {
-      const p = path.join(assetsPath, logoName);
-      if (fs$2.existsSync(p)) {
-        const buffer = fs$2.readFileSync(p);
-        const ext = path.extname(p).slice(1);
-        logoBase64 = `data:image/${ext};base64,${buffer.toString("base64")}`;
-        break;
-      }
+    if (settings?.logo_path && fs$2.existsSync(settings.logo_path)) {
+      const buffer = fs$2.readFileSync(settings.logo_path);
+      const ext = path.extname(settings.logo_path).slice(1);
+      logoBase64 = `data:image/${ext};base64,${buffer.toString("base64")}`;
     }
     const printWin = new BrowserWindow({
       show: false,
@@ -2573,10 +2637,13 @@ app.whenReady().then(() => {
         nodeIntegration: true
       }
     });
-    const itemsHtml = saleData.items.map((item) => `
+    saleData.items.map((item) => `
       <tr>
-        <td style="padding: 8px 0; border-bottom: 1px solid #eee;">${item.name} x${item.quantity}</td>
-        <td style="text-align: right; padding: 8px 0; border-bottom: 1px solid #eee;">$${(item.price_at_sale * item.quantity).toFixed(2)}</td>
+        <td style="padding: 10px 0; border-bottom: 1px solid #eee;">
+          <div style="font-weight: 600; font-size: 14px;">${item.name}</div>
+          <div style="font-size: 11px; color: #666;">$${item.price.toFixed(2)} x ${item.quantity}</div>
+        </td>
+        <td style="text-align: right; padding: 10px 0; border-bottom: 1px solid #eee; font-weight: 600;">$${(item.price * item.quantity).toFixed(2)}</td>
       </tr>
     `).join("");
     const html = `
@@ -2586,111 +2653,182 @@ app.whenReady().then(() => {
           <meta charset="utf-8">
           <style>
             @page { 
-                margin: 10mm;
-                size: auto;
+                margin: 15mm;
+                size: A4;
             }
             body { 
               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
               width: 100%;
-              max-width: 100mm;
+              max-width: 180mm;
               margin: 0 auto; 
               padding: 20px;
               font-size: 14px;
-              line-height: 1.4;
+              line-height: 1.5;
               color: #333;
+              background-color: #fff;
             }
             .header {
               text-align: center;
+              margin-bottom: 30px;
               border-bottom: 2px solid #333;
-              padding-bottom: 15px;
-              margin-bottom: 20px;
+              padding-bottom: 20px;
+            }
+            .logo-container {
+              margin-bottom: 15px;
             }
             .logo {
-              max-width: 150px;
-              max-height: 80px;
-              margin-bottom: 10px;
+              max-width: 60mm;
+              max-height: 40mm;
+              object-fit: contain;
             }
             .business-name {
               margin: 0;
-              font-size: 24px;
+              font-size: 28px;
               font-weight: bold;
               text-transform: uppercase;
+              color: #000;
             }
             .ticket-info {
-              margin: 5px 0;
-              font-size: 12px;
-              color: #666;
+              margin: 4px 0;
+              font-size: 13px;
+              color: #444;
             }
-            .client-info {
-              margin-bottom: 20px;
-              padding: 10px;
+            .divider {
+              border-top: 1px solid #eee;
+              margin: 20px 0;
+            }
+            .info-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 20px;
+              margin-bottom: 30px;
+              padding: 15px;
               background: #f9f9f9;
-              border-radius: 4px;
+              border-radius: 8px;
+            }
+            .client-info h4, .sale-info h4 {
+              margin: 0 0 8px 0;
+              color: #666;
+              text-transform: uppercase;
+              font-size: 11px;
+              letter-spacing: 1px;
             }
             table {
               width: 100%;
               border-collapse: collapse;
-              margin-bottom: 20px;
+              margin-bottom: 30px;
             }
             th {
               text-align: left;
-              border-bottom: 2px solid #333;
-              padding-bottom: 8px;
+              border-bottom: 2px solid #000;
+              padding: 12px 8px;
               font-size: 12px;
               text-transform: uppercase;
+              background: #f4f4f4;
+            }
+            td {
+              padding: 12px 8px;
+              border-bottom: 1px solid #eee;
             }
             .total-section {
-              border-top: 2px solid #333;
-              padding-top: 15px;
+              margin-top: 20px;
               text-align: right;
+              float: right;
+              width: 300px;
             }
-            .total-amount {
-              margin: 0;
-              font-size: 20px;
+            .total-row {
+              display: flex;
+              justify-content: space-between;
               font-weight: bold;
+              font-size: 22px;
+              border-top: 2px solid #000;
+              padding-top: 10px;
+              color: #000;
+            }
+            .payment-status {
+              margin-top: 10px;
+              font-size: 13px;
+              text-transform: uppercase;
+              font-weight: bold;
+              background: #000;
+              color: #fff;
+              display: inline-block;
+              padding: 5px 15px;
+              border-radius: 4px;
             }
             .footer {
               text-align: center;
-              margin-top: 40px;
-              padding-top: 20px;
-              border-top: 1px dashed #ccc;
-              font-size: 12px;
-              color: #888;
+              margin-top: 100px;
+              padding-top: 30px;
+              border-top: 1px solid #eee;
+              font-size: 13px;
+              clear: both;
+            }
+            .social-links {
+              margin-top: 8px;
+              color: #666;
             }
           </style>
         </head>
         <body>
           <div class="header">
-            ${logoBase64 ? `<img src="${logoBase64}" class="logo" />` : ""}
-            <h1 class="business-name">${APP_NAME}</h1>
-            <p class="ticket-info">Ticket de Venta #${saleData.id || "NUEVA"}</p>
-            <p class="ticket-info">Fecha: ${(/* @__PURE__ */ new Date()).toLocaleString()}</p>
+            ${logoBase64 ? `<div class="logo-container"><img src="${logoBase64}" class="logo" /></div>` : ""}
+            <h1 class="business-name">${bizName}</h1>
+            ${settings?.address ? `<p class="ticket-info">${settings.address}</p>` : ""}
+            ${settings?.phone ? `<p class="ticket-info">Tel: ${settings.phone}</p>` : ""}
+            ${settings?.cuit ? `<p class="ticket-info">CUIT: ${settings.cuit}</p>` : ""}
           </div>
           
-          <div class="client-info">
-            <p style="margin: 0;"><strong>Cliente:</strong> ${saleData.client_name || "Consumidor Final"}</p>
+          <div class="info-grid">
+            <div class="client-info">
+              <h4>CLIENTE</h4>
+              <p style="margin: 0; font-weight: bold; font-size: 16px;">${String(saleData.client_name || "CONSUMIDOR FINAL").toUpperCase()}</p>
+            </div>
+            <div class="sale-info" style="text-align: right;">
+              <h4>COMPROBANTE</h4>
+              <p style="margin: 0; font-weight: bold;">TICKET DE VENTA #${saleData.id || "NUEVA"}</p>
+              <p style="margin: 4px 0 0 0; font-size: 12px; color: #666;">Fecha: ${(/* @__PURE__ */ new Date()).toLocaleString("es-AR")}</p>
+            </div>
           </div>
 
           <table>
             <thead>
               <tr>
-                <th>Detalle</th>
-                <th style="text-align: right;">Subtotal</th>
+                <th>DESCRIPCIÓN DE PRODUCTO</th>
+                <th style="text-align: right;">CANTIDAD</th>
+                <th style="text-align: right;">PRECIO UNIT.</th>
+                <th style="text-align: right;">SUBTOTAL</th>
               </tr>
             </thead>
             <tbody>
-              ${itemsHtml}
+              ${saleData.items.map((item) => `
+                <tr>
+                  <td><strong>${item.name}</strong></td>
+                  <td style="text-align: right;">${item.quantity}</td>
+                  <td style="text-align: right;">$${item.price.toFixed(2)}</td>
+                  <td style="text-align: right; font-weight: bold;">$${(item.price * item.quantity).toFixed(2)}</td>
+                </tr>
+              `).join("")}
             </tbody>
           </table>
 
           <div class="total-section">
-            <p class="total-amount">TOTAL: $${saleData.total.toFixed(2)}</p>
-            <p style="margin: 5px 0; font-size: 12px;"><strong>Estado:</strong> ${saleData.payment_status === "pending" ? "CUENTA CORRIENTE" : "PAGADO"}</p>
+            <div class="total-row">
+              <span>TOTAL A PAGAR:</span>
+              <span>$${saleData.total.toFixed(2)}</span>
+            </div>
+            <div class="payment-status">
+              ${saleData.payment_status === "pending" ? "SALDO EN CUENTA CORRIENTE" : "COBRADO / PAGADO"}
+            </div>
           </div>
 
           <div class="footer">
-            <p>¡Gracias por confiar en nosotros!</p>
-            <p style="font-size: 10px; margin-top: 5px;">Archivo: ${fileName}</p>
+            <p style="font-weight: bold;">${(settings?.footer_message || "¡Gracias por su compra!").toUpperCase()}</p>
+            <div class="social-links">
+                ${settings?.instagram ? `<span>Instagram: ${settings.instagram} </span>` : ""}
+                ${settings?.facebook ? `<span>Facebook: ${settings.facebook}</span>` : ""}
+            </div>
+            <p style="font-size: 10px; margin-top: 20px; color: #999;">Este documento no tiene validez fiscal.</p>
           </div>
         </body>
       </html>
@@ -2729,6 +2867,7 @@ app.whenReady().then(() => {
     }
     return { success: false, error: "Cancelado" };
   });
+  ipcMain.handle("optimize-db", () => optimizeDB());
   ipcMain.handle("backup-full", async () => {
     const { filePaths } = await dialog.showOpenDialog({
       title: "Seleccionar Carpeta para Backup Completo (Drive/Dropbox/Local)",
@@ -2738,16 +2877,16 @@ app.whenReady().then(() => {
       const destBase = path.join(filePaths[0], `Backup_${APP_NAME}_${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}`);
       try {
         if (!fs$2.existsSync(destBase)) fs$2.mkdirSync(destBase);
-        const dbSource = path.join(app.getPath("userData"), "database.sqlite");
-        fs$2.copyFileSync(dbSource, path.join(destBase, "database.sqlite"));
+        fs$2.copyFileSync(dbPath, path.join(destBase, "database.sqlite"));
         const userDocs = path.join(app.getPath("documents"), APP_NAME);
         if (fs$2.existsSync(userDocs)) {
           const folders = ["Facturas", "Assets", "Productos"];
+          const fse = await Promise.resolve().then(() => index);
           folders.forEach((f) => {
             const src = path.join(userDocs, f);
             const dst = path.join(destBase, f);
             if (fs$2.existsSync(src)) {
-              Promise.resolve().then(() => index).then((fse) => fse.default.copySync(src, dst));
+              fse.default.copySync(src, dst);
             }
           });
         }
@@ -2758,15 +2897,59 @@ app.whenReady().then(() => {
     }
     return { success: false, error: "Cancelado" };
   });
+  ipcMain.handle("restore-full", async () => {
+    const { filePaths } = await dialog.showOpenDialog({
+      title: "Seleccionar Carpeta del Backup Completo",
+      properties: ["openDirectory"]
+    });
+    if (filePaths && filePaths.length > 0) {
+      const sourceBase = filePaths[0];
+      const dbFile = path.join(sourceBase, "database.sqlite");
+      if (!fs$2.existsSync(dbFile)) {
+        return { success: false, error: "No se encontró el archivo database.sqlite en la carpeta seleccionada." };
+      }
+      try {
+        restoreDB(dbFile);
+        const userDocs = path.join(app.getPath("documents"), APP_NAME);
+        const folders = ["Facturas", "Assets", "Productos"];
+        const fse = await Promise.resolve().then(() => index);
+        folders.forEach((f) => {
+          const src = path.join(sourceBase, f);
+          const dst = path.join(userDocs, f);
+          if (fs$2.existsSync(src)) {
+            fse.default.copySync(src, dst, { overwrite: true });
+          }
+        });
+        return { success: true };
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    }
+    return { success: false, error: "Cancelado" };
+  });
   ipcMain.handle("check-updates", async () => {
     try {
       const { net } = await import("electron");
-      const response = await net.fetch(UPDATE_URL);
-      if (!response.ok) throw new Error("Servidor no disponible");
+      const noCacheUrl = `${UPDATE_URL}?t=${Date.now()}`;
+      console.log("Checking updates at:", noCacheUrl);
+      const response = await net.fetch(noCacheUrl);
+      if (!response.ok) {
+        console.error("Update server responded with status:", response.status);
+        throw new Error(`Servidor respondió con estado ${response.status}`);
+      }
       const remote = await response.json();
-      return { success: true, remoteVersion: remote.version, updateUrl: remote.url };
+      console.log("Remote version found:", remote.version, "Local version:", APP_VERSION);
+      const remoteV = String(remote.version).trim();
+      const localV = String(APP_VERSION).trim();
+      return {
+        success: true,
+        remoteVersion: remoteV,
+        updateUrl: remote.url,
+        hasUpdate: remoteV !== localV
+      };
     } catch (e) {
-      return { success: false, error: "No se pudo conectar al servidor de actualizaciones." };
+      console.error("Update check failed:", e);
+      return { success: false, error: `No se pudo conectar al servidor: ${e.message}` };
     }
   });
   ipcMain.handle("restore-db", async () => {
@@ -2783,20 +2966,34 @@ app.whenReady().then(() => {
   ipcMain.handle("export-data", async (_, { type, data }) => {
     const { filePath } = await dialog.showSaveDialog({
       title: `Exportar ${type}`,
-      defaultPath: `${type}-${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}.csv`,
-      filters: [{ name: "CSV File", extensions: ["csv"] }]
+      defaultPath: `${type}-${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}.xlsx`,
+      filters: [{ name: "Excel Workbook", extensions: ["xlsx"] }]
     });
     if (filePath && data.length > 0) {
       try {
-        const fs2 = await import("fs/promises");
-        const headers = Object.keys(data[0]).join(",");
-        const rows = data.map((row) => Object.values(row).map(
-          (v) => typeof v === "string" && v.includes(",") ? `"${v}"` : v
-        ).join(","));
-        const csvContent = [headers, ...rows].join("\n");
-        await fs2.writeFile(filePath, csvContent, "utf-8");
+        const XLSX = await import("./xlsx-CuqUK6HK.js");
+        const worksheet = XLSX.utils.json_to_sheet(data);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, type);
+        const objectMaxLength = [];
+        const keys = Object.keys(data[0]);
+        keys.forEach((key) => {
+          objectMaxLength.push(key.length);
+        });
+        data.forEach((row) => {
+          keys.forEach((key, i) => {
+            const value = row[key] ? String(row[key]) : "";
+            if (value.length > objectMaxLength[i]) {
+              objectMaxLength[i] = value.length;
+            }
+          });
+        });
+        worksheet["!cols"] = objectMaxLength.map((w) => ({ wch: w + 2 }));
+        const buf = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+        fs$2.writeFileSync(filePath, buf);
         return { success: true };
       } catch (error) {
+        console.error("Export error:", error);
         return { success: false, error: String(error) };
       }
     }

@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Download } from 'lucide-react';
+import { Toast } from '@/components/ui/Toast';
 
 export default function Expenses() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [form, setForm] = useState({ description: '', amount: '', category: 'Otros' });
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     loadExpenses();
@@ -16,13 +18,15 @@ export default function Expenses() {
 
   async function handleExport() {
     const dataToExport = expenses.map(e => ({
-      ID: e.id,
       Fecha: new Date(e.date).toLocaleString(),
       Descripción: e.description,
       Categoría: e.category,
       Monto: e.amount.toFixed(2)
     }));
-    await window.electronAPI.exportData('Gastos', dataToExport);
+    const result = await window.electronAPI.exportData('Gastos', dataToExport);
+    if (result && result.success) {
+      setToast({ message: 'Datos exportados correctamente a Excel', type: 'success' });
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -49,12 +53,19 @@ export default function Expenses() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {toast && (
+        <Toast 
+          message={toast.message} 
+          type={toast.type} 
+          onClose={() => setToast(null)} 
+        />
+      )}
       <div className="flex justify-between items-center">
         <h2 className="text-3xl font-bold tracking-tight">Control de Gastos</h2>
         <button 
           onClick={handleExport}
           className="flex items-center gap-2 bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors"
-          title="Exportar a CSV"
+          title="Exportar a Excel"
         >
           <Download size={20} /> Exportar
         </button>

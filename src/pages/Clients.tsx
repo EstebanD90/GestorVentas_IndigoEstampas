@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Plus, Pencil, Trash2, Search, DollarSign, History, Download } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import { Toast } from '@/components/ui/Toast';
 
 export default function Clients() {
   const [clients, setClients] = useState<any[]>([]);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<any>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Payment Modal State
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -14,6 +16,7 @@ export default function Clients() {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
   const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -27,8 +30,12 @@ export default function Clients() {
   }, []);
 
   async function loadClients() {
-    const data = await window.electronAPI.getClients();
-    setClients(data);
+    try {
+      const data = await window.electronAPI.getClients();
+      setClients(data);
+    } catch (error) {
+      console.error('Error loading clients:', error);
+    }
   }
 
   function handleOpenModal(client?: any) {
@@ -49,46 +56,126 @@ export default function Clients() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (editingClient) {
-      await window.electronAPI.updateClient({ ...formData, id: editingClient.id });
-    } else {
-      await window.electronAPI.addClient(formData);
+    try {
+      if (editingClient) {
+        await window.electronAPI.updateClient({ ...formData, id: editingClient.id });
+      } else {
+        await window.electronAPI.addClient(formData);
+      }
+      setIsModalOpen(false);
+      loadClients();
+    } catch (error) {
+      console.error('Error submitting client:', error);
+      alert('Error al guardar el cliente.');
     }
-    setIsModalOpen(false);
-    loadClients();
   }
 
   async function handleDelete(id: number) {
     if (confirm('¿Estás seguro de eliminar este cliente?')) {
-      await window.electronAPI.deleteClient(id);
-      loadClients();
+      try {
+        await window.electronAPI.deleteClient(id);
+        loadClients();
+      } catch (error) {
+        console.error('Error deleting client:', error);
+        alert('Error al eliminar el cliente.');
+      }
     }
   }
 
   async function openPaymentModal(client: any) {
-    setSelectedClientForPayment(client);
-    setPaymentAmount('');
-    setPaymentNote('');
-    
-    // Load history
-    const history = await window.electronAPI.getClientPayments(client.id);
-    setPaymentHistory(history);
-    
-    setIsPaymentModalOpen(true);
+    try {
+      // Set client first to ensure modal has context
+      setSelectedClientForPayment(client);
+      
+      // Reset input states immediately
+      setPaymentAmount('');
+      setPaymentNote('');
+      setIsProcessingPayment(false);
+      
+      // Open modal
+      setIsPaymentModalOpen(true);
+      
+      // Load history asynchronously
+      const history = await window.electronAPI.getClientPayments(client.id);
+      setPaymentHistory(history);
+    } catch (error) {
+      console.error('Error opening payment modal:', error);
+      alert('Error al cargar los datos del cliente.');
+    }
   }
 
   async function handlePaymentSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedClientForPayment || !paymentAmount) return;
+    if (!selectedClientForPayment || !paymentAmount || isProcessingPayment) return;
 
-    await window.electronAPI.registerClientPayment({
-      client_id: selectedClientForPayment.id,
-      amount: parseFloat(paymentAmount),
-      note: paymentNote
-    });
+    setIsProcessingPayment(true);
+    try {
+      const amount = parseFloat(paymentAmount);
+      const result = await window.electronAPI.registerClientPayment({
+        client_id: selectedClientForPayment.id,
+        amount,
+        method: 'Efectivo',
+        notes: paymentNote
+      });
 
-    setIsPaymentModalOpen(false);
-    loadClients();
+      if (result.success) {
+        setPaymentAmount('');
+        setPaymentNote('');
+        
+        // Refresh everything
+        await refreshModalData(selectedClientForPayment.id);
+        await loadClients();
+      } else {
+        alert('Error al registrar el pago: ' + result.error);
+      }
+    } catch (error) {
+      console.error('Error in handlePaymentSubmit:', error);
+      alert('Error al procesar el pago.');
+    } finally {
+      // Ensure we always unlock, even if state updates are pending
+      setTimeout(() => setIsProcessingPayment(false), 100);
+    }
+  }
+
+  async function handleDeletePayment(id: number) {
+    if (!selectedClientForPayment || isProcessingPayment) return;
+    
+    if (confirm('¿Estás seguro de eliminar este pago? El saldo del cliente se ajustará automáticamente.')) {
+      setIsProcessingPayment(true);
+      try {
+        const result = await window.electronAPI.deleteClientPayment(id);
+        if (result.success) {
+          await refreshModalData(selectedClientForPayment.id);
+          await loadClients();
+        } else {
+          alert('Error al eliminar el pago: ' + result.error);
+        }
+      } catch (error) {
+        console.error('Error in handleDeletePayment:', error);
+        alert('Error al eliminar el pago.');
+      } finally {
+        // Ensure we always unlock
+        setTimeout(() => setIsProcessingPayment(false), 100);
+      }
+    }
+  }
+
+  async function refreshModalData(clientId: number) {
+    try {
+      // Load both in parallel for speed
+      const [allClients, history] = await Promise.all([
+        window.electronAPI.getClients(),
+        window.electronAPI.getClientPayments(clientId)
+      ]);
+      
+      const updatedClient = allClients.find((c: any) => c.id === clientId);
+      if (updatedClient) {
+        setSelectedClientForPayment(updatedClient);
+      }
+      setPaymentHistory(history);
+    } catch (error) {
+      console.error('Error refreshing modal data:', error);
+    }
   }
 
   const filteredClients = clients.filter(c => 
@@ -105,18 +192,28 @@ export default function Clients() {
       Dirección: c.address || '-',
       Saldo: c.balance.toFixed(2)
     }));
-    await window.electronAPI.exportData('Clientes', dataToExport);
+    const result = await window.electronAPI.exportData('Clientes', dataToExport);
+    if (result && result.success) {
+      setToast({ message: 'Datos exportados correctamente a Excel', type: 'success' });
+    }
   }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {toast && (
+        <Toast 
+          message={toast.message} 
+          type={toast.type} 
+          onClose={() => setToast(null)} 
+        />
+      )}
       <div className="flex justify-between items-center">
         <h2 className="text-3xl font-bold tracking-tight">Clientes</h2>
         <div className="flex gap-2">
             <button 
               onClick={handleExport}
               className="flex items-center gap-2 bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors"
-              title="Exportar a CSV"
+              title="Exportar a Excel"
             >
               <Download size={20} /> Exportar
             </button>
@@ -254,10 +351,15 @@ export default function Clients() {
       {/* Payment Modal */}
       <Modal
         isOpen={isPaymentModalOpen}
-        onClose={() => setIsPaymentModalOpen(false)}
+        onClose={() => {
+          setIsPaymentModalOpen(false);
+          setPaymentAmount('');
+          setPaymentNote('');
+          setIsProcessingPayment(false);
+        }}
         title={`Cuenta Corriente: ${selectedClientForPayment?.name}`}
       >
-        <div className="space-y-6">
+        <div className="space-y-6" key={selectedClientForPayment?.id}>
             <div className="bg-muted p-4 rounded-lg flex justify-between items-center">
                 <span className="font-medium">Saldo Actual (Deuda):</span>
                 <span className={`text-xl font-bold ${selectedClientForPayment?.balance > 0 ? 'text-red-500' : 'text-green-500'}`}>
@@ -274,23 +376,29 @@ export default function Clients() {
                             step="0.01"
                             placeholder="Monto ($)"
                             required
+                            disabled={isProcessingPayment}
                             value={paymentAmount}
                             onChange={(e) => setPaymentAmount(e.target.value)}
-                            className="w-full px-3 py-2 border rounded-md bg-background focus:ring-2 focus:ring-primary outline-none"
+                            className="w-full px-3 py-2 border rounded-md bg-background focus:ring-2 focus:ring-primary outline-none disabled:opacity-50"
                         />
                     </div>
                     <div className="flex-1">
                         <input 
                             type="text" 
                             placeholder="Nota (opcional)"
+                            disabled={isProcessingPayment}
                             value={paymentNote}
                             onChange={(e) => setPaymentNote(e.target.value)}
-                            className="w-full px-3 py-2 border rounded-md bg-background focus:ring-2 focus:ring-primary outline-none"
+                            className="w-full px-3 py-2 border rounded-md bg-background focus:ring-2 focus:ring-primary outline-none disabled:opacity-50"
                         />
                     </div>
                 </div>
-                <button type="submit" className="w-full bg-green-600 text-white py-2 rounded-md hover:bg-green-700 transition-colors">
-                    Registrar Pago
+                <button 
+                  type="submit" 
+                  disabled={isProcessingPayment || !paymentAmount}
+                  className="w-full bg-green-600 text-white py-2 rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    {isProcessingPayment ? 'Procesando...' : 'Registrar Pago'}
                 </button>
             </form>
 
@@ -309,10 +417,22 @@ export default function Clients() {
                         </thead>
                         <tbody className="divide-y">
                             {paymentHistory.map((p) => (
-                                <tr key={p.id}>
+                                <tr key={p.id} className="group">
                                     <td className="px-3 py-2 text-muted-foreground">{new Date(p.date).toLocaleDateString()}</td>
-                                    <td className="px-3 py-2">{p.note || '-'}</td>
-                                    <td className="px-3 py-2 text-right font-medium text-green-600">+${p.amount.toFixed(2)}</td>
+                                    <td className="px-3 py-2">{p.notes || '-'}</td>
+                                    <td className="px-3 py-2 text-right font-medium text-green-600">
+                                      <div className="flex items-center justify-end gap-2">
+                                        <span>+${p.amount.toFixed(2)}</span>
+                                        <button 
+                                          onClick={() => handleDeletePayment(p.id)}
+                                          disabled={isProcessingPayment}
+                                          className="text-destructive opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-50 rounded disabled:hidden"
+                                          title="Eliminar pago"
+                                        >
+                                          <Trash2 size={14} />
+                                        </button>
+                                      </div>
+                                    </td>
                                 </tr>
                             ))}
                             {paymentHistory.length === 0 && (

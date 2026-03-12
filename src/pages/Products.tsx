@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Plus, Search, Pencil, Trash2, Download, Package, ImageIcon, X } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Download, ImageIcon, X } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import { Toast } from '@/components/ui/Toast';
 
 export default function Products() {
   const [products, setProducts] = useState<any[]>([]);
@@ -9,6 +10,7 @@ export default function Products() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -121,18 +123,28 @@ export default function Products() {
       Stock: p.stock,
       StockMin: p.min_stock
     }));
-    await window.electronAPI.exportData('Productos', dataToExport);
+    const result = await window.electronAPI.exportData('Productos', dataToExport);
+    if (result && result.success) {
+      setToast({ message: 'Datos exportados correctamente a Excel', type: 'success' });
+    }
   }
 
   return (
     <div className="space-y-6">
+      {toast && (
+        <Toast 
+          message={toast.message} 
+          type={toast.type} 
+          onClose={() => setToast(null)} 
+        />
+      )}
       <div className="flex justify-between items-center">
         <h2 className="text-3xl font-bold tracking-tight">Productos</h2>
         <div className="flex gap-2">
             <button 
               onClick={handleExport}
               className="flex items-center gap-2 bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors"
-              title="Exportar a CSV"
+              title="Exportar a Excel"
             >
               <Download size={20} /> Exportar
             </button>

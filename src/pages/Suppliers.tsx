@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Plus, Pencil, Trash2, Search, Download } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import { Toast } from '@/components/ui/Toast';
 
 export default function Suppliers() {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<any>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -71,18 +73,28 @@ export default function Suppliers() {
       Teléfono: s.phone || '-',
       Dirección: s.address || '-'
     }));
-    await window.electronAPI.exportData('Proveedores', dataToExport);
+    const result = await window.electronAPI.exportData('Proveedores', dataToExport);
+    if (result && result.success) {
+      setToast({ message: 'Datos exportados correctamente a Excel', type: 'success' });
+    }
   }
 
   return (
     <div className="space-y-6">
+      {toast && (
+        <Toast 
+          message={toast.message} 
+          type={toast.type} 
+          onClose={() => setToast(null)} 
+        />
+      )}
       <div className="flex justify-between items-center">
         <h2 className="text-3xl font-bold tracking-tight">Proveedores</h2>
         <div className="flex gap-2">
             <button 
               onClick={handleExport}
               className="flex items-center gap-2 bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors"
-              title="Exportar a CSV"
+              title="Exportar a Excel"
             >
               <Download size={20} /> Exportar
             </button>

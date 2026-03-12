@@ -24,14 +24,28 @@ interface Window {
     deleteExpense: (id: number) => Promise<any>;
 
     getSales: () => Promise<any[]>;
+    getSaleItems: (id: number) => Promise<any[]>;
     createSale: (data: any) => Promise<any>;
     deleteSale: (id: number) => Promise<any>;
     clearSalesHistory: () => Promise<any>;
     getDashboardStats: () => Promise<any>;
 
+    printTicket: (saleData: any) => Promise<any>;
     backupDB: () => Promise<any>;
+    backupFull: () => Promise<any>;
     restoreDB: () => Promise<any>;
+    restoreFull: () => Promise<any>;
+    optimizeDB: () => Promise<any>;
+    checkUpdates: () => Promise<any>;
     exportData: (type: string, data: any[]) => Promise<any>;
+    selectImage: () => Promise<string | null>;
+    getImageBase64: (path: string) => Promise<string | null>;
+    openInvoicesFolder: () => Promise<void>;
+    getBusinessSettings: () => Promise<any>;
+    updateBusinessSettings: (settings: any) => Promise<any>;
+    registerClientPayment: (data: any) => Promise<any>;
+    getClientPayments: (clientId: number) => Promise<any[]>;
+    deleteClientPayment: (id: number) => Promise<any>;
   }
-};
 }
+

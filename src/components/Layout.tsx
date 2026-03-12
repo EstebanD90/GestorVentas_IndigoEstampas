@@ -2,7 +2,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Package, Users, Truck, ShoppingCart, Calculator, Save, Sun, Moon, List, Receipt, Palette } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/hooks/useTheme';
-import { APP_NAME } from '@/constants';
+import { APP_NAME, APP_VERSION } from '@/constants';
 
 const themes = [
     { name: 'light', label: 'Claro', icon: Sun },
@@ -23,9 +23,8 @@ const navItems = [
   { path: '/suppliers', icon: Truck, label: 'Proveedores' },
   { path: '/calculators', icon: Calculator, label: 'Calculadoras' },
   { path: '/backup', icon: Save, label: 'Mantenimiento' },
+  { path: '/settings', icon: Palette, label: 'Ajustes' },
 ];
-
-import { APP_VERSION } from '@/constants';
 
 export default function Layout() {
   const location = useLocation();

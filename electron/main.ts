@@ -13,8 +13,8 @@ export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist');
 
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 'public') : RENDERER_DIST;
 
-// Import app name from shared constants
-import { APP_NAME } from '../src/constants';
+// Import app name and update URL from shared constants
+import { APP_NAME, UPDATE_URL, APP_VERSION } from '../src/constants';
 
 // Create Facturas directory if not exists
 const invoicesPath = path.join(app.getPath('documents'), APP_NAME, 'Facturas');
@@ -30,10 +30,11 @@ const productImagesPath = path.join(app.getPath('documents'), APP_NAME, 'Product
 import { 
   initDB, dbPath,
   getProducts, addProduct, updateProduct, deleteProduct,
-  getClients, addClient, updateClient, deleteClient, registerClientPayment, getClientPayments,
+  getClients, addClient, updateClient, deleteClient, registerClientPayment, getClientPayments, deleteClientPayment,
   getSuppliers, addSupplier, updateSupplier, deleteSupplier,
   getExpenses, addExpense, deleteExpense,
-  createSale, getSales, getSaleItems, deleteSale, clearSalesHistory, getDashboardStats, backupDB, restoreDB
+  createSale, getSales, getSaleItems, deleteSale, clearSalesHistory, getDashboardStats, backupDB, restoreDB, optimizeDB,
+  getBusinessSettings, updateBusinessSettings
 } from './db';
 
 let win: BrowserWindow | null;
@@ -71,6 +72,10 @@ app.on('activate', () => {
 app.whenReady().then(() => {
   initDB();
   
+  // Business Settings
+  ipcMain.handle('get-business-settings', () => getBusinessSettings());
+  ipcMain.handle('update-business-settings', (_, settings) => updateBusinessSettings(settings));
+
   // Products
   ipcMain.handle('get-products', () => getProducts());
   ipcMain.handle('add-product', (_, p) => addProduct(p));
@@ -84,6 +89,7 @@ app.whenReady().then(() => {
   ipcMain.handle('delete-client', (_, id) => deleteClient(id));
   ipcMain.handle('register-client-payment', (_, p) => registerClientPayment(p));
   ipcMain.handle('get-client-payments', (_, id) => getClientPayments(id));
+  ipcMain.handle('delete-client-payment', (_, id) => deleteClientPayment(id));
 
   // Suppliers
   ipcMain.handle('get-suppliers', () => getSuppliers());
@@ -135,17 +141,16 @@ app.whenReady().then(() => {
     const fileName = `Venta_${saleData.id || 'NUEVA'}_${timestamp}.pdf`;
     const fullPath = path.join(invoicesPath, fileName);
 
-    // Try to load logo if exists in Assets
+    // Load business settings
+    const settings = getBusinessSettings();
+    const bizName = settings?.name || APP_NAME;
+
+    // Try to load logo
     let logoBase64 = '';
-    const possibleLogos = ['logo.png', 'logo.jpg', 'logo.jpeg'];
-    for (const logoName of possibleLogos) {
-      const p = path.join(assetsPath, logoName);
-      if (fs.existsSync(p)) {
-        const buffer = fs.readFileSync(p);
-        const ext = path.extname(p).slice(1);
-        logoBase64 = `data:image/${ext};base64,${buffer.toString('base64')}`;
-        break;
-      }
+    if (settings?.logo_path && fs.existsSync(settings.logo_path)) {
+      const buffer = fs.readFileSync(settings.logo_path);
+      const ext = path.extname(settings.logo_path).slice(1);
+      logoBase64 = `data:image/${ext};base64,${buffer.toString('base64')}`;
     }
 
     const printWin = new BrowserWindow({
@@ -157,8 +162,11 @@ app.whenReady().then(() => {
 
     const itemsHtml = saleData.items.map((item: any) => `
       <tr>
-        <td style="padding: 8px 0; border-bottom: 1px solid #eee;">${item.name} x${item.quantity}</td>
-        <td style="text-align: right; padding: 8px 0; border-bottom: 1px solid #eee;">$${(item.price_at_sale * item.quantity).toFixed(2)}</td>
+        <td style="padding: 10px 0; border-bottom: 1px solid #eee;">
+          <div style="font-weight: 600; font-size: 14px;">${item.name}</div>
+          <div style="font-size: 11px; color: #666;">$${item.price.toFixed(2)} x ${item.quantity}</div>
+        </td>
+        <td style="text-align: right; padding: 10px 0; border-bottom: 1px solid #eee; font-weight: 600;">$${(item.price * item.quantity).toFixed(2)}</td>
       </tr>
     `).join('');
 
@@ -169,111 +177,182 @@ app.whenReady().then(() => {
           <meta charset="utf-8">
           <style>
             @page { 
-                margin: 10mm;
-                size: auto;
+                margin: 15mm;
+                size: A4;
             }
             body { 
               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
               width: 100%;
-              max-width: 100mm;
+              max-width: 180mm;
               margin: 0 auto; 
               padding: 20px;
               font-size: 14px;
-              line-height: 1.4;
+              line-height: 1.5;
               color: #333;
+              background-color: #fff;
             }
             .header {
               text-align: center;
+              margin-bottom: 30px;
               border-bottom: 2px solid #333;
-              padding-bottom: 15px;
-              margin-bottom: 20px;
+              padding-bottom: 20px;
+            }
+            .logo-container {
+              margin-bottom: 15px;
             }
             .logo {
-              max-width: 150px;
-              max-height: 80px;
-              margin-bottom: 10px;
+              max-width: 60mm;
+              max-height: 40mm;
+              object-fit: contain;
             }
             .business-name {
               margin: 0;
-              font-size: 24px;
+              font-size: 28px;
               font-weight: bold;
               text-transform: uppercase;
+              color: #000;
             }
             .ticket-info {
-              margin: 5px 0;
-              font-size: 12px;
-              color: #666;
+              margin: 4px 0;
+              font-size: 13px;
+              color: #444;
             }
-            .client-info {
-              margin-bottom: 20px;
-              padding: 10px;
+            .divider {
+              border-top: 1px solid #eee;
+              margin: 20px 0;
+            }
+            .info-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 20px;
+              margin-bottom: 30px;
+              padding: 15px;
               background: #f9f9f9;
-              border-radius: 4px;
+              border-radius: 8px;
+            }
+            .client-info h4, .sale-info h4 {
+              margin: 0 0 8px 0;
+              color: #666;
+              text-transform: uppercase;
+              font-size: 11px;
+              letter-spacing: 1px;
             }
             table {
               width: 100%;
               border-collapse: collapse;
-              margin-bottom: 20px;
+              margin-bottom: 30px;
             }
             th {
               text-align: left;
-              border-bottom: 2px solid #333;
-              padding-bottom: 8px;
+              border-bottom: 2px solid #000;
+              padding: 12px 8px;
               font-size: 12px;
               text-transform: uppercase;
+              background: #f4f4f4;
+            }
+            td {
+              padding: 12px 8px;
+              border-bottom: 1px solid #eee;
             }
             .total-section {
-              border-top: 2px solid #333;
-              padding-top: 15px;
+              margin-top: 20px;
               text-align: right;
+              float: right;
+              width: 300px;
             }
-            .total-amount {
-              margin: 0;
-              font-size: 20px;
+            .total-row {
+              display: flex;
+              justify-content: space-between;
               font-weight: bold;
+              font-size: 22px;
+              border-top: 2px solid #000;
+              padding-top: 10px;
+              color: #000;
+            }
+            .payment-status {
+              margin-top: 10px;
+              font-size: 13px;
+              text-transform: uppercase;
+              font-weight: bold;
+              background: #000;
+              color: #fff;
+              display: inline-block;
+              padding: 5px 15px;
+              border-radius: 4px;
             }
             .footer {
               text-align: center;
-              margin-top: 40px;
-              padding-top: 20px;
-              border-top: 1px dashed #ccc;
-              font-size: 12px;
-              color: #888;
+              margin-top: 100px;
+              padding-top: 30px;
+              border-top: 1px solid #eee;
+              font-size: 13px;
+              clear: both;
+            }
+            .social-links {
+              margin-top: 8px;
+              color: #666;
             }
           </style>
         </head>
         <body>
           <div class="header">
-            ${logoBase64 ? `<img src="${logoBase64}" class="logo" />` : ''}
-            <h1 class="business-name">${APP_NAME}</h1>
-            <p class="ticket-info">Ticket de Venta #${saleData.id || 'NUEVA'}</p>
-            <p class="ticket-info">Fecha: ${new Date().toLocaleString()}</p>
+            ${logoBase64 ? `<div class="logo-container"><img src="${logoBase64}" class="logo" /></div>` : ''}
+            <h1 class="business-name">${bizName}</h1>
+            ${settings?.address ? `<p class="ticket-info">${settings.address}</p>` : ''}
+            ${settings?.phone ? `<p class="ticket-info">Tel: ${settings.phone}</p>` : ''}
+            ${settings?.cuit ? `<p class="ticket-info">CUIT: ${settings.cuit}</p>` : ''}
           </div>
           
-          <div class="client-info">
-            <p style="margin: 0;"><strong>Cliente:</strong> ${saleData.client_name || 'Consumidor Final'}</p>
+          <div class="info-grid">
+            <div class="client-info">
+              <h4>CLIENTE</h4>
+              <p style="margin: 0; font-weight: bold; font-size: 16px;">${String(saleData.client_name || 'CONSUMIDOR FINAL').toUpperCase()}</p>
+            </div>
+            <div class="sale-info" style="text-align: right;">
+              <h4>COMPROBANTE</h4>
+              <p style="margin: 0; font-weight: bold;">TICKET DE VENTA #${saleData.id || 'NUEVA'}</p>
+              <p style="margin: 4px 0 0 0; font-size: 12px; color: #666;">Fecha: ${new Date().toLocaleString('es-AR')}</p>
+            </div>
           </div>
 
           <table>
             <thead>
               <tr>
-                <th>Detalle</th>
-                <th style="text-align: right;">Subtotal</th>
+                <th>DESCRIPCIÓN DE PRODUCTO</th>
+                <th style="text-align: right;">CANTIDAD</th>
+                <th style="text-align: right;">PRECIO UNIT.</th>
+                <th style="text-align: right;">SUBTOTAL</th>
               </tr>
             </thead>
             <tbody>
-              ${itemsHtml}
+              ${saleData.items.map((item: any) => `
+                <tr>
+                  <td><strong>${item.name}</strong></td>
+                  <td style="text-align: right;">${item.quantity}</td>
+                  <td style="text-align: right;">$${item.price.toFixed(2)}</td>
+                  <td style="text-align: right; font-weight: bold;">$${(item.price * item.quantity).toFixed(2)}</td>
+                </tr>
+              `).join('')}
             </tbody>
           </table>
 
           <div class="total-section">
-            <p class="total-amount">TOTAL: $${saleData.total.toFixed(2)}</p>
-            <p style="margin: 5px 0; font-size: 12px;"><strong>Estado:</strong> ${saleData.payment_status === 'pending' ? 'CUENTA CORRIENTE' : 'PAGADO'}</p>
+            <div class="total-row">
+              <span>TOTAL A PAGAR:</span>
+              <span>$${saleData.total.toFixed(2)}</span>
+            </div>
+            <div class="payment-status">
+              ${saleData.payment_status === 'pending' ? 'SALDO EN CUENTA CORRIENTE' : 'COBRADO / PAGADO'}
+            </div>
           </div>
 
           <div class="footer">
-            <p>¡Gracias por confiar en nosotros!</p>
-            <p style="font-size: 10px; margin-top: 5px;">Archivo: ${fileName}</p>
+            <p style="font-weight: bold;">${(settings?.footer_message || '¡Gracias por su compra!').toUpperCase()}</p>
+            <div class="social-links">
+                ${settings?.instagram ? `<span>Instagram: ${settings.instagram} </span>` : ''}
+                ${settings?.facebook ? `<span>Facebook: ${settings.facebook}</span>` : ''}
+            </div>
+            <p style="font-size: 10px; margin-top: 20px; color: #999;">Este documento no tiene validez fiscal.</p>
           </div>
         </body>
       </html>
@@ -321,6 +400,8 @@ app.whenReady().then(() => {
     return { success: false, error: 'Cancelado' };
   });
 
+  ipcMain.handle('optimize-db', () => optimizeDB());
+
   ipcMain.handle('backup-full', async () => {
     const { filePaths } = await dialog.showOpenDialog({
       title: 'Seleccionar Carpeta para Backup Completo (Drive/Dropbox/Local)',
@@ -339,13 +420,12 @@ app.whenReady().then(() => {
         const userDocs = path.join(app.getPath('documents'), APP_NAME);
         if (fs.existsSync(userDocs)) {
             const folders = ['Facturas', 'Assets', 'Productos'];
+            const fse = await import('fs-extra');
             folders.forEach(f => {
                 const src = path.join(userDocs, f);
                 const dst = path.join(destBase, f);
                 if (fs.existsSync(src)) {
-                    // Use fs-extra copySync for directories
-                    // @ts-ignore
-                    import('fs-extra').then(fse => fse.default.copySync(src, dst));
+                    fse.default.copySync(src, dst);
                 }
             });
         }
@@ -357,15 +437,73 @@ app.whenReady().then(() => {
     return { success: false, error: 'Cancelado' };
   });
 
+  ipcMain.handle('restore-full', async () => {
+    const { filePaths } = await dialog.showOpenDialog({
+      title: 'Seleccionar Carpeta del Backup Completo',
+      properties: ['openDirectory']
+    });
+
+    if (filePaths && filePaths.length > 0) {
+      const sourceBase = filePaths[0];
+      const dbFile = path.join(sourceBase, 'database.sqlite');
+      
+      if (!fs.existsSync(dbFile)) {
+        return { success: false, error: 'No se encontró el archivo database.sqlite en la carpeta seleccionada.' };
+      }
+
+      try {
+        // Restore DB
+        restoreDB(dbFile);
+        
+        // Restore Folders
+        const userDocs = path.join(app.getPath('documents'), APP_NAME);
+        const folders = ['Facturas', 'Assets', 'Productos'];
+        const fse = await import('fs-extra');
+        
+        folders.forEach(f => {
+            const src = path.join(sourceBase, f);
+            const dst = path.join(userDocs, f);
+            if (fs.existsSync(src)) {
+                fse.default.copySync(src, dst, { overwrite: true });
+            }
+        });
+        
+        return { success: true };
+      } catch (e: any) {
+        return { success: false, error: e.message };
+      }
+    }
+    return { success: false, error: 'Cancelado' };
+  });
+
   ipcMain.handle('check-updates', async () => {
     try {
         const { net } = await import('electron');
-        const response = await net.fetch(UPDATE_URL);
-        if (!response.ok) throw new Error('Servidor no disponible');
+        // Agregamos un timestamp para evitar que el navegador o GitHub nos den una respuesta cacheada vieja
+        const noCacheUrl = `${UPDATE_URL}?t=${Date.now()}`;
+        console.log('Checking updates at:', noCacheUrl);
+        
+        const response = await net.fetch(noCacheUrl);
+        if (!response.ok) {
+          console.error('Update server responded with status:', response.status);
+          throw new Error(`Servidor respondió con estado ${response.status}`);
+        }
         const remote = await response.json();
-        return { success: true, remoteVersion: remote.version, updateUrl: remote.url };
+        console.log('Remote version found:', remote.version, 'Local version:', APP_VERSION);
+        
+        // Limpiamos posibles espacios en blanco de las versiones
+        const remoteV = String(remote.version).trim();
+        const localV = String(APP_VERSION).trim();
+        
+        return { 
+          success: true, 
+          remoteVersion: remoteV, 
+          updateUrl: remote.url,
+          hasUpdate: remoteV !== localV 
+        };
     } catch (e: any) {
-        return { success: false, error: 'No se pudo conectar al servidor de actualizaciones.' };
+        console.error('Update check failed:', e);
+        return { success: false, error: `No se pudo conectar al servidor: ${e.message}` };
     }
   });
 
@@ -385,24 +523,44 @@ app.whenReady().then(() => {
   ipcMain.handle('export-data', async (_, { type, data }) => {
     const { filePath } = await dialog.showSaveDialog({
       title: `Exportar ${type}`,
-      defaultPath: `${type}-${new Date().toISOString().split('T')[0]}.csv`,
-      filters: [{ name: 'CSV File', extensions: ['csv'] }]
+      defaultPath: `${type}-${new Date().toISOString().split('T')[0]}.xlsx`,
+      filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
     });
 
     if (filePath && data.length > 0) {
       try {
-        const fs = await import('fs/promises');
-        // Get headers
-        const headers = Object.keys(data[0]).join(',');
-        // Get rows
-        const rows = data.map((row: any) => Object.values(row).map((v: any) => 
-          typeof v === 'string' && v.includes(',') ? `"${v}"` : v
-        ).join(','));
+        const XLSX = await import('xlsx');
+        const worksheet = XLSX.utils.json_to_sheet(data);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, type);
         
-        const csvContent = [headers, ...rows].join('\n');
-        await fs.writeFile(filePath, csvContent, 'utf-8');
+        // Auto-size columns
+        const objectMaxLength: any[] = [];
+        const keys = Object.keys(data[0]);
+        
+        // Initialize with header lengths
+        keys.forEach((key) => {
+          objectMaxLength.push(key.length);
+        });
+
+        // Compare with data lengths
+        data.forEach((row: any) => {
+          keys.forEach((key, i) => {
+            const value = row[key] ? String(row[key]) : "";
+            if (value.length > objectMaxLength[i]) {
+              objectMaxLength[i] = value.length;
+            }
+          });
+        });
+
+        worksheet["!cols"] = objectMaxLength.map((w) => ({ wch: w + 2 }));
+
+        const buf = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+        fs.writeFileSync(filePath, buf);
+        
         return { success: true };
       } catch (error) {
+        console.error('Export error:', error);
         return { success: false, error: String(error) };
       }
     }

@@ -9,8 +9,13 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-electron
+dist_installer
 dist-ssr
 *.local
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 
 # Editor directories and files
 .vscode/*

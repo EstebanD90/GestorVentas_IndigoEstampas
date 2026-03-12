@@ -9,6 +9,7 @@ import Calculators from './pages/Calculators';
 import Backup from './pages/Backup';
 import PriceList from './pages/PriceList';
 import Expenses from './pages/Expenses';
+import Settings from './pages/Settings';
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
           <Route path="sales" element={<Sales />} />
           <Route path="calculators" element={<Calculators />} />
           <Route path="backup" element={<Backup />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
     </HashRouter>

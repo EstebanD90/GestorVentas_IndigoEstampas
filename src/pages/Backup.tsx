@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Save, Upload, Cloud, RefreshCw, CheckCircle2, AlertCircle, Info } from 'lucide-react';
+import { useState } from 'react';
+import { Save, Download, Cloud, RefreshCw, CheckCircle2, AlertCircle, Info } from 'lucide-react';
 import { APP_VERSION } from '@/constants';
 
 export default function Backup() {
@@ -23,6 +23,27 @@ export default function Backup() {
     } else {
       setMessage('');
     }
+  };
+
+  const handleRestoreFull = async () => {
+    if (!confirm('¿Estás seguro? Se restaurarán todos los datos, imágenes y facturas. Se recomienda tener un backup actual antes de proceder.')) return;
+    setMessage('Restaurando sistema completo...');
+    const res = await window.electronAPI.restoreFull();
+    if (res.success) {
+      setMessage('Sistema restaurado con éxito. Reiniciando aplicación...');
+      setTimeout(() => window.location.reload(), 2000);
+    } else if (res.error !== 'Cancelado') {
+      setMessage('Error al restaurar: ' + res.error);
+    } else {
+      setMessage('');
+    }
+  };
+
+  const handleOptimize = async () => {
+    setMessage('Optimizando base de datos...');
+    const res = await window.electronAPI.optimizeDB();
+    if (res.success) setMessage('Base de datos optimizada con éxito. La aplicación debería funcionar más rápido.');
+    else setMessage('Error al optimizar: ' + res.error);
   };
 
   const handleCheckUpdates = async () => {
@@ -111,6 +132,12 @@ export default function Backup() {
             >
                 Restaurar Datos
             </button>
+            <button 
+                onClick={handleRestoreFull}
+                className="w-full py-2 border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors text-xs font-bold dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400"
+            >
+                Restaurar Backup Completo
+            </button>
           </div>
         </div>
 
@@ -131,17 +158,15 @@ export default function Backup() {
                 <div className="p-3 bg-green-50 border border-green-200 rounded-lg dark:bg-green-900/20 dark:border-green-800">
                     <div className="flex items-center gap-2 text-green-700 dark:text-green-400 mb-1">
                         <CheckCircle2 size={16} />
-                        <span className="font-bold text-sm">¡Nueva versión v{updateInfo.remoteVersion}!</span>
+                        <span className="font-bold text-sm">¡Versión v{updateInfo.remoteVersion} lista!</span>
                     </div>
-                    <p className="text-xs text-muted-foreground mb-2">Hay mejoras listas para descargar.</p>
-                    <a 
-                        href={updateInfo.updateUrl} 
-                        target="_blank" 
-                        rel="noreferrer"
-                        className="text-xs font-bold text-green-600 underline hover:text-green-700"
+                    <p className="text-[10px] text-muted-foreground mb-3 leading-relaxed">Se recomienda actualizar para obtener las últimas correcciones y mejoras visuales.</p>
+                    <button 
+                        onClick={() => window.open(updateInfo.updateUrl, '_blank')}
+                        className="w-full py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-xs font-bold flex items-center justify-center gap-2"
                     >
-                        Descargar v{updateInfo.remoteVersion} ahora
-                    </a>
+                        <Download size={14} /> Descargar e Instalar
+                    </button>
                 </div>
             ) : updateInfo ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
@@ -150,7 +175,7 @@ export default function Backup() {
                 </div>
             ) : (
                 <div className="py-4 text-xs text-muted-foreground flex items-center gap-2">
-                    <Info size={16} /> Presiona el botón para buscar mejoras.
+                    <Info size={16} /> Presiona el botón para buscar actualizaciones.
                 </div>
             )}
           </div>
@@ -160,7 +185,13 @@ export default function Backup() {
             onClick={handleCheckUpdates}
             className="w-full py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/90 transition-colors font-medium disabled:opacity-50"
           >
-            {checking ? 'Buscando...' : 'Buscar Mejoras'}
+            {checking ? 'Buscando...' : 'Buscar Actualizaciones'}
+          </button>
+          <button 
+            onClick={handleOptimize}
+            className="w-full py-2 bg-muted text-muted-foreground rounded-md hover:bg-muted/80 transition-colors text-xs font-medium"
+          >
+            Optimizar Base de Datos (VACUUM)
           </button>
         </div>
       </div>

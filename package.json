@@ -46,5 +46,24 @@
     "vite": "^7.2.4",
     "vite-plugin-electron": "^0.29.0",
     "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "com.indigo.gestor",
+    "productName": "Indigo Estampas",
+    "directories": {
+      "output": "dist_installer"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "IndigoEstampas_Setup_${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Indigo Estampas"
+    }
   }
 }

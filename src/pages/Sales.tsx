@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Plus, ShoppingCart, Trash2, Download, Search, Filter, Calendar, CheckCircle2, XCircle, FolderOpen } from 'lucide-react';
+import { Plus, Trash2, Download, Search, Calendar, FolderOpen } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import { Toast } from '@/components/ui/Toast';
 
 export default function Sales() {
   const [sales, setSales] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState('all'); // all, today, week, month
-  const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   
   // New Sale State
   const [products, setProducts] = useState<any[]>([]);
@@ -24,8 +25,7 @@ export default function Sales() {
   }, []);
 
   function showNotification(message: string, type: 'success' | 'error' = 'success') {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 3000);
+    setToast({ message, type });
   }
 
   async function loadSales() {
@@ -120,9 +120,10 @@ export default function Sales() {
       client_id: selectedClient ? parseInt(selectedClient) : null,
       client_name: client ? client.name : 'Consumidor Final',
       items: cart.map(item => ({
+        id: item.id,
         name: item.name,
         quantity: item.quantity,
-        price_at_sale: item.price
+        price: item.price
       })),
       payment_status: isCredit && selectedClient ? 'pending' : 'paid',
       total: cart.reduce((acc, item) => acc + (item.price * item.quantity), 0)
@@ -157,7 +158,7 @@ export default function Sales() {
         items: items.map((item: any) => ({
             name: item.name,
             quantity: item.quantity,
-            price_at_sale: item.price_at_sale
+            price: item.price_at_sale
         }))
     };
     const result = await window.electronAPI.printTicket(saleData);
@@ -205,7 +206,7 @@ export default function Sales() {
     }));
     const result = await window.electronAPI.exportData('Ventas', dataToExport);
     if (result && result.success) {
-        showNotification('Datos exportados correctamente');
+        showNotification('Datos exportados correctamente a Excel');
     }
   }
 
@@ -214,15 +215,12 @@ export default function Sales() {
   return (
     <div className="space-y-6 relative">
       {/* Toast Notification */}
-      {notification && (
-        <div className={`fixed top-4 right-4 z-50 animate-in slide-in-from-right duration-300 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl border ${
-          notification.type === 'success' 
-            ? 'bg-green-500 text-white border-green-400' 
-            : 'bg-red-500 text-white border-red-400'
-        }`}>
-          {notification.type === 'success' ? <CheckCircle2 size={24} /> : <XCircle size={24} />}
-          <p className="font-bold">{notification.message}</p>
-        </div>
+      {toast && (
+        <Toast 
+          message={toast.message} 
+          type={toast.type} 
+          onClose={() => setToast(null)} 
+        />
       )}
 
       <div className="flex justify-between items-center">
@@ -246,7 +244,7 @@ export default function Sales() {
             <button 
               onClick={handleExport}
               className="flex items-center gap-2 bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors"
-              title="Exportar a CSV"
+              title="Exportar a Excel"
             >
               <Download size={20} /> Exportar
             </button>

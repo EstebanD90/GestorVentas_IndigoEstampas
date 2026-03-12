@@ -93,8 +93,9 @@ export function initDB() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id INTEGER NOT NULL,
       amount REAL NOT NULL,
+      method TEXT,
+      notes TEXT,
       date DATETIME DEFAULT CURRENT_TIMESTAMP,
-      note TEXT,
       FOREIGN KEY(client_id) REFERENCES clients(id)
     )
   `);
@@ -104,7 +105,32 @@ export function initDB() {
   try { db.prepare('ALTER TABLE products ADD COLUMN category TEXT').run(); } catch (e) {}
   try { db.prepare('ALTER TABLE products ADD COLUMN image_path TEXT').run(); } catch (e) {}
   try { db.prepare('ALTER TABLE clients ADD COLUMN balance REAL DEFAULT 0').run(); } catch (e) {}
-  try { db.prepare('ALTER TABLE sales ADD COLUMN payment_status TEXT DEFAULT "paid"').run(); } catch (e) {} // paid, pending
+  try { db.prepare('ALTER TABLE client_payments ADD COLUMN method TEXT').run(); } catch (e) {}
+  try { db.prepare('ALTER TABLE client_payments ADD COLUMN notes TEXT').run(); } catch (e) {}
+  
+  // Create business_settings table if not exists
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS business_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      name TEXT,
+      address TEXT,
+      phone TEXT,
+      email TEXT,
+      instagram TEXT,
+      facebook TEXT,
+      cuit TEXT,
+      footer_message TEXT,
+      logo_path TEXT
+    )
+  `).run();
+
+  // Initialize business settings if empty
+  const settings = db.prepare('SELECT * FROM business_settings WHERE id = 1').get();
+  if (!settings) {
+    db.prepare("INSERT INTO business_settings (id, name) VALUES (1, 'INDIGO ESTAMPAS')").run();
+  }
+  
+  try { db.prepare("ALTER TABLE sales ADD COLUMN payment_status TEXT DEFAULT 'paid'").run(); } catch (e) {} // paid, pending
 }
 
 // --- Generic Helpers (can be expanded) ---
@@ -118,14 +144,6 @@ export const getClients = () => db.prepare('SELECT * FROM clients ORDER BY name'
 export const addClient = (c: any) => db.prepare('INSERT INTO clients (name, email, phone, address, balance) VALUES (@name, @email, @phone, @address, 0)').run(c);
 export const updateClient = (c: any) => db.prepare('UPDATE clients SET name=@name, email=@email, phone=@phone, address=@address WHERE id=@id').run(c);
 export const deleteClient = (id: number) => db.prepare('DELETE FROM clients WHERE id = ?').run(id);
-export const registerClientPayment = (payment: any) => {
-    const transaction = db.transaction((p) => {
-        db.prepare('INSERT INTO client_payments (client_id, amount, note) VALUES (@client_id, @amount, @note)').run(p);
-        db.prepare('UPDATE clients SET balance = balance - @amount WHERE id = @client_id').run(p);
-    });
-    return transaction(payment);
-};
-export const getClientPayments = (clientId: number) => db.prepare('SELECT * FROM client_payments WHERE client_id = ? ORDER BY date DESC').all(clientId);
 
 export const getSuppliers = () => db.prepare('SELECT * FROM suppliers ORDER BY name').all();
 export const addSupplier = (s: any) => db.prepare('INSERT INTO suppliers (name, email, phone, address) VALUES (@name, @email, @phone, @address)').run(s);
@@ -217,35 +235,32 @@ export const clearSalesHistory = () => {
     }
 };
 
-export const createSale = (saleData: { client_id: number | null, items: any[], payment_status?: 'paid' | 'pending' }) => {
-    const createSaleTransaction = db.transaction((sale) => {
-        let total = 0;
-        for (const item of sale.items) {
-            total += item.price * item.quantity;
-        }
-
-        const paymentStatus = sale.payment_status || 'paid';
-        const result = db.prepare('INSERT INTO sales (client_id, total, payment_status) VALUES (?, ?, ?)').run(sale.client_id, total, paymentStatus);
+export const createSale = (data: any) => {
+    const { client_id, items, payment_status } = data;
+    const total = items.reduce((acc: number, item: any) => acc + (item.price * item.quantity), 0);
+    
+    const transaction = db.transaction(() => {
+        const result = db.prepare('INSERT INTO sales (client_id, total, payment_status) VALUES (?, ?, ?)').run(client_id, total, payment_status || 'paid');
         const saleId = result.lastInsertRowid;
-
-        // If on credit (pending), update client balance
-        if (paymentStatus === 'pending' && sale.client_id) {
-            db.prepare('UPDATE clients SET balance = balance + ? WHERE id = ?').run(total, sale.client_id);
-        }
 
         const insertItem = db.prepare('INSERT INTO sale_items (sale_id, product_id, quantity, price_at_sale, cost_at_sale) VALUES (?, ?, ?, ?, ?)');
         const updateStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
 
-        for (const item of sale.items) {
-            // Get current cost
+        for (const item of items) {
             const product = db.prepare('SELECT cost FROM products WHERE id = ?').get(item.id) as any;
             insertItem.run(saleId, item.id, item.quantity, item.price, product.cost);
             updateStock.run(item.quantity, item.id);
         }
+
+        // If payment is pending, add to client debt (balance increases)
+        if (payment_status === 'pending' && client_id) {
+            db.prepare('UPDATE clients SET balance = balance + ? WHERE id = ?').run(total, client_id);
+        }
+
         return saleId;
     });
 
-    return createSaleTransaction(saleData);
+    return transaction();
 };
 
 export const getDashboardStats = () => {
@@ -308,13 +323,64 @@ export const getDashboardStats = () => {
     };
 };
 
-export const backupDB = (targetPath: string) => {
+export const backupDB = (destPath: string) => {
     try {
-        db.backup(targetPath);
+        fs.copyFileSync(dbPath, destPath);
         return { success: true };
-    } catch (error) {
-        return { success: false, error: String(error) };
+    } catch (e: any) {
+        return { success: false, error: e.message };
     }
+};
+
+// Business Settings
+export const getBusinessSettings = () => {
+  return db.prepare('SELECT * FROM business_settings WHERE id = 1').get();
+};
+
+export const updateBusinessSettings = (settings: any) => {
+  const fields = Object.keys(settings).filter(k => k !== 'id').map(k => `${k}=@${k}`).join(', ');
+  return db.prepare(`UPDATE business_settings SET ${fields} WHERE id = 1`).run(settings);
+};
+
+// Client Accounts & Payments
+export const registerClientPayment = (data: any) => {
+  const { client_id, amount, method, notes, date } = data;
+  
+  const transaction = db.transaction(() => {
+    // Record the payment
+    db.prepare('INSERT INTO client_payments (client_id, amount, method, notes, date) VALUES (?, ?, ?, ?, ?)').run(client_id, amount, method, notes, date || new Date().toISOString());
+    
+    // Update client balance (reduce debt)
+    db.prepare('UPDATE clients SET balance = balance - ? WHERE id = ?').run(amount, client_id);
+  });
+  
+  try {
+    transaction();
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+};
+
+export const getClientPayments = (clientId: number) => {
+  return db.prepare('SELECT * FROM client_payments WHERE client_id = ? ORDER BY date DESC').all(clientId);
+};
+
+export const deleteClientPayment = (id: number) => {
+  const transaction = db.transaction((paymentId) => {
+    const payment = db.prepare('SELECT client_id, amount FROM client_payments WHERE id = ?').get(paymentId) as any;
+    if (payment) {
+      db.prepare('UPDATE clients SET balance = balance + ? WHERE id = ?').run(payment.amount, payment.client_id);
+      db.prepare('DELETE FROM client_payments WHERE id = ?').run(paymentId);
+    }
+  });
+
+  try {
+    transaction(id);
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
 };
 
 export const restoreDB = (sourcePath: string) => {
@@ -328,5 +394,14 @@ export const restoreDB = (sourcePath: string) => {
         return { success: true };
     } catch (error) {
         return { success: false, error: String(error) };
+    }
+};
+
+export const optimizeDB = () => {
+    try {
+        db.exec('VACUUM');
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
     }
 };

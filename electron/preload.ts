@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteClient: (id: number) => ipcRenderer.invoke('delete-client', id),
   registerClientPayment: (p: any) => ipcRenderer.invoke('register-client-payment', p),
   getClientPayments: (id: number) => ipcRenderer.invoke('get-client-payments', id),
+  deleteClientPayment: (id: number) => ipcRenderer.invoke('delete-client-payment', id),
 
   // Suppliers
   getSuppliers: () => ipcRenderer.invoke('get-suppliers'),
@@ -35,6 +36,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDashboardStats: () => ipcRenderer.invoke('get-dashboard-stats'),
   printTicket: (saleData: any) => ipcRenderer.invoke('print-ticket', saleData),
   openInvoicesFolder: () => ipcRenderer.invoke('open-invoices-folder'),
+  getBusinessSettings: () => ipcRenderer.invoke('get-business-settings'),
+  updateBusinessSettings: (settings: any) => ipcRenderer.invoke('update-business-settings', settings),
   selectImage: () => ipcRenderer.invoke('select-image'),
   getImageBase64: (path: string) => ipcRenderer.invoke('get-image-base64', path),
 
@@ -42,6 +45,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   backupDB: () => ipcRenderer.invoke('backup-db'),
   backupFull: () => ipcRenderer.invoke('backup-full'),
   restoreDB: () => ipcRenderer.invoke('restore-db'),
+  restoreFull: () => ipcRenderer.invoke('restore-full'),
+  optimizeDB: () => ipcRenderer.invoke('optimize-db'),
   checkUpdates: () => ipcRenderer.invoke('check-updates'),
 
   // System
