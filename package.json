@@ -5,11 +5,11 @@
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "vite",
+    "start:dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "dist": "tsc -b && vite build && electron-builder"
+    "package:prod": "tsc -b && vite build && electron-builder"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",

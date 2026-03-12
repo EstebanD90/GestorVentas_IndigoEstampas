@@ -4,9 +4,11 @@ import { app } from 'electron';
 import fs from 'fs-extra';
 
 const isDev = !app.isPackaged;
+const dbName = isDev ? 'database.dev.sqlite' : 'database.prod.sqlite';
+
 export const dbPath = isDev 
-  ? path.join(app.getAppPath(), 'database.sqlite') 
-  : path.join(app.getPath('userData'), 'database.sqlite');
+  ? path.join(app.getAppPath(), dbName) 
+  : path.join(app.getPath('userData'), dbName);
 
 let db: Database.Database;
 
