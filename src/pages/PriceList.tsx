@@ -5,7 +5,8 @@ import { Toast } from '@/components/ui/Toast';
 export default function PriceList() {
   const [products, setProducts] = useState<any[]>([]);
   const [search, setSearch] = useState('');
-  const [editedProducts, setEditedProducts] = useState<{[key: number]: any}>({});
+  const [editedProducts, setEditedProducts] = useState<Record<number, any>>({});
+  const [tempInputs, setTempInputs] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
@@ -19,17 +20,39 @@ export default function PriceList() {
   }
 
   const handlePriceChange = (id: number, field: 'price' | 'cost', value: string) => {
-    const product = products.find(p => p.id === id);
-    if (!product) return;
-
-    setEditedProducts(prev => ({
+    // Save the raw string for the input field to allow free typing (like decimals or empty)
+    setTempInputs(prev => ({
       ...prev,
-      [id]: {
-        ...product,
-        ...prev[id], // Keep existing edits
-        [field]: parseFloat(value) || 0
-      }
+      [`${id}-${field}`]: value
     }));
+
+    // If it's a valid number, update the editedProducts state for calculations
+    const numValue = parseFloat(value);
+    if (!isNaN(numValue)) {
+        const product = products.find(p => p.id === id);
+        if (!product) return;
+        setEditedProducts(prev => ({
+          ...prev,
+          [id]: {
+            ...product,
+            ...prev[id],
+            [field]: numValue
+          }
+        }));
+    }
+  };
+
+  const getDisplayValue = (product: any, field: 'price' | 'cost') => {
+    // Prioritize temporary input string if it exists
+    if (tempInputs[`${product.id}-${field}`] !== undefined) {
+        return tempInputs[`${product.id}-${field}`];
+    }
+    // Then prioritize edited values
+    if (editedProducts[product.id] && editedProducts[product.id][field] !== undefined) {
+        return editedProducts[product.id][field].toString();
+    }
+    // Finally the original value
+    return product[field].toString();
   };
 
   const saveProduct = async (id: number) => {
@@ -45,13 +68,14 @@ export default function PriceList() {
       delete newState[id];
       return newState;
     });
-  };
-
-  const getDisplayValue = (product: any, field: 'price' | 'cost') => {
-    if (editedProducts[product.id] && editedProducts[product.id][field] !== undefined) {
-        return editedProducts[product.id][field];
-    }
-    return product[field];
+    // Clear temp inputs for this product
+    setTempInputs(prev => {
+        const newState = { ...prev };
+        delete newState[`${id}-price`];
+        delete newState[`${id}-cost`];
+        return newState;
+    });
+    setToast({ message: 'Precio actualizado correctamente', type: 'success' });
   };
 
   const filteredProducts = products.filter(p => 
@@ -157,14 +181,14 @@ export default function PriceList() {
                     <td className="px-4 py-3 font-mono">
                         ${profit.toFixed(2)}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-3 text-right">
                         {isEdited && (
                             <button 
                                 onClick={() => saveProduct(product.id)}
-                                className="text-primary hover:text-primary/80 p-1 hover:bg-primary/10 rounded"
+                                className="flex items-center gap-1 text-primary hover:text-primary/80 px-2 py-1 hover:bg-primary/10 rounded border border-primary/20 ml-auto"
                                 title="Guardar Cambios"
                             >
-                                <Save size={20} />
+                                <Save size={16} /> <span className="text-xs font-bold">Guardar</span>
                             </button>
                         )}
                     </td>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, Search, DollarSign, History, Download } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, DollarSign, History, Download, Save } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Toast } from '@/components/ui/Toast';
 
@@ -59,14 +59,16 @@ export default function Clients() {
     try {
       if (editingClient) {
         await window.electronAPI.updateClient({ ...formData, id: editingClient.id });
+        setToast({ message: 'Cliente actualizado correctamente', type: 'success' });
       } else {
         await window.electronAPI.addClient(formData);
+        setToast({ message: 'Cliente creado correctamente', type: 'success' });
       }
       setIsModalOpen(false);
       loadClients();
     } catch (error) {
       console.error('Error submitting client:', error);
-      alert('Error al guardar el cliente.');
+      setToast({ message: 'Error al guardar el cliente', type: 'error' });
     }
   }
 
@@ -75,9 +77,10 @@ export default function Clients() {
       try {
         await window.electronAPI.deleteClient(id);
         loadClients();
-      } catch (error) {
+        setToast({ message: 'Cliente eliminado', type: 'success' });
+      } catch (error: any) {
         console.error('Error deleting client:', error);
-        alert('Error al eliminar el cliente.');
+        setToast({ message: error.message || 'Error al eliminar el cliente', type: 'error' });
       }
     }
   }
@@ -340,9 +343,9 @@ export default function Clients() {
             </button>
             <button 
               type="submit" 
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors flex items-center gap-2"
             >
-              Guardar
+              <Save size={18} /> Guardar
             </button>
           </div>
         </form>
@@ -396,9 +399,9 @@ export default function Clients() {
                 <button 
                   type="submit" 
                   disabled={isProcessingPayment || !paymentAmount}
-                  className="w-full bg-green-600 text-white py-2 rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full bg-green-600 text-white py-2 rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                    {isProcessingPayment ? 'Procesando...' : 'Registrar Pago'}
+                    <Save size={18} /> {isProcessingPayment ? 'Procesando...' : 'Guardar Pago'}
                 </button>
             </form>
 

@@ -5,7 +5,9 @@ export function useTheme() {
 
   useEffect(() => {
     const root = window.document.documentElement;
-    root.classList.remove('light', 'dark', 'theme-emerald', 'theme-rose', 'theme-amber', 'theme-violet');
+    // Get all classes that start with 'theme-' or are 'light'/'dark'
+    const themeClasses = Array.from(root.classList).filter(c => c.startsWith('theme-') || c === 'light' || c === 'dark');
+    root.classList.remove(...themeClasses);
     root.classList.add(theme);
     localStorage.setItem('theme', theme);
   }, [theme]);

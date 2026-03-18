@@ -1,7 +1,7 @@
 {
-  "name": "gestordeventas",
+  "name": "indigo-estampas",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.4.0",
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -48,22 +48,30 @@
     "wait-on": "^9.0.3"
   },
   "build": {
-    "appId": "com.indigo.gestor",
+    "appId": "com.indigo.estampas",
     "productName": "Indigo Estampas",
     "directories": {
       "output": "dist_installer"
     },
     "win": {
       "target": [
-        "nsis"
+        "nsis",
+        "portable"
       ],
-      "artifactName": "IndigoEstampas_Setup_${version}.${ext}"
+      "icon": "public/e-commerce.png",
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "Indigo Estampas"
+      "shortcutName": "Indigo Estampas",
+      "uninstallDisplayName": "Indigo Estampas",
+      "runAfterFinish": true
+    },
+    "portable": {
+      "artifactName": "IndigoEstampas_Portable_${version}.${ext}"
     }
   }
 }

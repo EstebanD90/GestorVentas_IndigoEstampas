@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, Search, Download } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Download, Save } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Toast } from '@/components/ui/Toast';
 
@@ -46,8 +46,10 @@ export default function Suppliers() {
     e.preventDefault();
     if (editingSupplier) {
       await window.electronAPI.updateSupplier({ ...formData, id: editingSupplier.id });
+      setToast({ message: 'Proveedor actualizado correctamente', type: 'success' });
     } else {
       await window.electronAPI.addSupplier(formData);
+      setToast({ message: 'Proveedor creado correctamente', type: 'success' });
     }
     setIsModalOpen(false);
     loadSuppliers();
@@ -57,6 +59,7 @@ export default function Suppliers() {
     if (confirm('¿Estás seguro de eliminar este proveedor?')) {
       await window.electronAPI.deleteSupplier(id);
       loadSuppliers();
+      setToast({ message: 'Proveedor eliminado', type: 'success' });
     }
   }
 
@@ -210,9 +213,9 @@ export default function Suppliers() {
             </button>
             <button 
               type="submit" 
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors flex items-center gap-2"
             >
-              Guardar
+              <Save size={18} /> Guardar
             </button>
           </div>
         </form>

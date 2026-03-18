@@ -15,6 +15,7 @@ let db: Database.Database;
 export function initDB() {
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
 
   // Products
   db.exec(`
@@ -138,14 +139,30 @@ export function initDB() {
 // --- Generic Helpers (can be expanded) ---
 
 export const getProducts = () => db.prepare('SELECT * FROM products ORDER BY name').all();
-export const addProduct = (p: any) => db.prepare('INSERT INTO products (name, description, price, cost, stock, min_stock, category, image_path) VALUES (@name, @description, @price, @cost, @stock, @min_stock, @category, @image_path)').run({ ...p, min_stock: p.min_stock || 5, category: p.category || 'General' });
-export const updateProduct = (p: any) => db.prepare('UPDATE products SET name=@name, description=@description, price=@price, cost=@cost, stock=@stock, min_stock=@min_stock, category=@category, image_path=@image_path WHERE id=@id').run({ ...p, min_stock: p.min_stock || 5, category: p.category || 'General' });
-export const deleteProduct = (id: number) => db.prepare('DELETE FROM products WHERE id = ?').run(id);
+export const addProduct = (p: any) => db.prepare('INSERT INTO products (name, description, price, cost, stock, min_stock, category, image_path) VALUES (@name, @description, @price, @cost, @stock, @min_stock, @category, @image_path)').run({ ...p, min_stock: p.min_stock || 5, category: p.category || null });
+export const updateProduct = (p: any) => db.prepare('UPDATE products SET name=@name, description=@description, price=@price, cost=@cost, stock=@stock, min_stock=@min_stock, category=@category, image_path=@image_path WHERE id=@id').run({ ...p, min_stock: p.min_stock || 5, category: p.category || null });
+export const deleteProduct = (id: number) => {
+    // Check if product is in any sale
+    const usage = db.prepare('SELECT COUNT(*) as count FROM sale_items WHERE product_id = ?').get(id) as any;
+    if (usage.count > 0) {
+        throw new Error('No se puede eliminar el producto porque tiene ventas asociadas. Considere poner el stock en 0.');
+    }
+    return db.prepare('DELETE FROM products WHERE id = ?').run(id);
+};
 
 export const getClients = () => db.prepare('SELECT * FROM clients ORDER BY name').all();
 export const addClient = (c: any) => db.prepare('INSERT INTO clients (name, email, phone, address, balance) VALUES (@name, @email, @phone, @address, 0)').run(c);
 export const updateClient = (c: any) => db.prepare('UPDATE clients SET name=@name, email=@email, phone=@phone, address=@address WHERE id=@id').run(c);
-export const deleteClient = (id: number) => db.prepare('DELETE FROM clients WHERE id = ?').run(id);
+export const deleteClient = (id: number) => {
+    // Check if client has sales or payments
+    const salesUsage = db.prepare('SELECT COUNT(*) as count FROM sales WHERE client_id = ?').get(id) as any;
+    const paymentsUsage = db.prepare('SELECT COUNT(*) as count FROM client_payments WHERE client_id = ?').get(id) as any;
+    
+    if (salesUsage.count > 0 || paymentsUsage.count > 0) {
+        throw new Error('No se puede eliminar el cliente porque tiene ventas o pagos asociados.');
+    }
+    return db.prepare('DELETE FROM clients WHERE id = ?').run(id);
+};
 
 export const getSuppliers = () => db.prepare('SELECT * FROM suppliers ORDER BY name').all();
 export const addSupplier = (s: any) => db.prepare('INSERT INTO suppliers (name, email, phone, address) VALUES (@name, @email, @phone, @address)').run(s);
@@ -154,6 +171,7 @@ export const deleteSupplier = (id: number) => db.prepare('DELETE FROM suppliers 
 
 export const getExpenses = () => db.prepare('SELECT * FROM expenses ORDER BY date DESC').all();
 export const addExpense = (e: any) => db.prepare('INSERT INTO expenses (description, amount, category, date) VALUES (@description, @amount, @category, @date)').run(e);
+export const updateExpense = (e: any) => db.prepare('UPDATE expenses SET description=@description, amount=@amount, category=@category, date=@date WHERE id=@id').run(e);
 export const deleteExpense = (id: number) => db.prepare('DELETE FROM expenses WHERE id = ?').run(id);
 
 export const getSales = () => {

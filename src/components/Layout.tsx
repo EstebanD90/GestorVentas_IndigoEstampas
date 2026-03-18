@@ -7,10 +7,11 @@ import { APP_NAME, APP_VERSION } from '@/constants';
 const themes = [
     { name: 'light', label: 'Claro', icon: Sun },
     { name: 'dark', label: 'Oscuro', icon: Moon },
-    { name: 'theme-emerald', label: 'Esmeralda', color: 'bg-emerald-500' },
-    { name: 'theme-rose', label: 'Rosa', color: 'bg-rose-500' },
-    { name: 'theme-amber', label: 'Ámbar', color: 'bg-amber-500' },
-    { name: 'theme-violet', label: 'Violeta', color: 'bg-violet-500' },
+    { name: 'theme-neutral', label: 'Tema Neutral', color: 'bg-[#2E669A]' },
+    { name: 'theme-natural', label: 'Natural Beauty', color: 'bg-[#C0DFB7]' },
+    { name: 'theme-otonal', label: 'Otoñal', color: 'bg-[#A63B32]' },
+    { name: 'theme-peach', label: 'Peach Aqua', color: 'bg-[#F26513]' },
+    { name: 'theme-pastel', label: 'Pastel', color: 'bg-[#7365A6]' },
 ];
 
 const navItems = [
@@ -61,7 +62,7 @@ export default function Layout() {
         </nav>
 
         <div className="p-4 border-t border-border">
-            <div className="grid grid-cols-3 gap-2 p-2 bg-muted/50 rounded-xl border border-border/50">
+            <div className="grid grid-cols-4 gap-2 p-2 bg-muted/50 rounded-xl border border-border/50">
                 {themes.map((t) => (
                     <button
                         key={t.name}

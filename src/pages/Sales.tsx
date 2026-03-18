@@ -16,6 +16,7 @@ export default function Sales() {
   const [cart, setCart] = useState<any[]>([]);
   const [selectedClient, setSelectedClient] = useState<string>('');
   const [selectedProduct, setSelectedProduct] = useState<string>('');
+  const [productCategoryFilter, setProductCategoryFilter] = useState('all');
   const [quantity, setQuantity] = useState(1);
   const [isCredit, setIsCredit] = useState(false);
 
@@ -23,6 +24,14 @@ export default function Sales() {
     loadSales();
     loadDependencies();
   }, []);
+
+  const productCategories = Array.from(new Set(['all', 'General', ...products.map(p => p.category).filter(Boolean)])).sort();
+  
+  const filteredProductsForSale = products.filter(p => {
+    if (productCategoryFilter === 'all') return p.stock > 0;
+    const cat = p.category || 'General';
+    return p.stock > 0 && cat === productCategoryFilter;
+  });
 
   function showNotification(message: string, type: 'success' | 'error' = 'success') {
     setToast({ message, type });
@@ -358,8 +367,24 @@ export default function Sales() {
             </select>
           </div>
 
-          <div className="flex gap-2 items-end">
-            <div className="flex-1 space-y-2">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-muted-foreground">Filtrar por Categoría</label>
+              <select 
+                value={productCategoryFilter}
+                onChange={(e) => {
+                  setProductCategoryFilter(e.target.value);
+                  setSelectedProduct('');
+                }}
+                className="w-full px-3 py-2 border rounded-md bg-muted/50 text-xs focus:ring-1 focus:ring-primary outline-none"
+              >
+                <option value="all">Todas las categorías</option>
+                {productCategories.filter(c => c !== 'all').map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
               <label className="text-sm font-medium">Producto</label>
               <select 
                 value={selectedProduct}
@@ -367,12 +392,15 @@ export default function Sales() {
                 className="w-full px-3 py-2 border rounded-md bg-background focus:ring-2 focus:ring-primary focus:border-transparent outline-none"
               >
                 <option value="">Seleccionar producto...</option>
-                {products.filter(p => p.stock > 0).map(p => (
+                {filteredProductsForSale.map(p => (
                   <option key={p.id} value={p.id}>{p.name} (${p.price}) - Stock: {p.stock}</option>
                 ))}
               </select>
             </div>
-            <div className="w-20 space-y-2">
+          </div>
+
+          <div className="flex gap-2 items-end justify-end">
+            <div className="w-24 space-y-2">
               <label className="text-sm font-medium">Cant.</label>
               <input 
                 type="number" 
@@ -383,12 +411,11 @@ export default function Sales() {
               />
             </div>
             <div className="space-y-2">
-                <label className="text-sm font-medium block">Agregar</label>
                 <button 
                   onClick={addToCart}
-                  className="px-3 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 h-[42px] w-full flex items-center justify-center"
+                  className="px-6 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 h-[42px] flex items-center justify-center font-medium gap-2"
                 >
-                  <Plus size={20} />
+                  <Plus size={18} /> Agregar
                 </button>
             </div>
           </div>

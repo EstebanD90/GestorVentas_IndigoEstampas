@@ -22,6 +22,7 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   // Expenses
   getExpenses: () => electron.ipcRenderer.invoke("get-expenses"),
   addExpense: (e) => electron.ipcRenderer.invoke("add-expense", e),
+  updateExpense: (e) => electron.ipcRenderer.invoke("update-expense", e),
   deleteExpense: (id) => electron.ipcRenderer.invoke("delete-expense", id),
   // Sales
   getSales: () => electron.ipcRenderer.invoke("get-sales"),
@@ -36,6 +37,7 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   updateBusinessSettings: (settings) => electron.ipcRenderer.invoke("update-business-settings", settings),
   selectImage: () => electron.ipcRenderer.invoke("select-image"),
   getImageBase64: (path) => electron.ipcRenderer.invoke("get-image-base64", path),
+  generateCatalogPDF: (products) => electron.ipcRenderer.invoke("generate-catalog-pdf", products),
   // Backup/Restore
   backupDB: () => electron.ipcRenderer.invoke("backup-db"),
   backupFull: () => electron.ipcRenderer.invoke("backup-full"),

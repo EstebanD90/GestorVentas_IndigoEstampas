@@ -1,5 +1,5 @@
 {
-  "version": "1.2.0",
-  "url": "https://github.com/EstebanD90/GestorVentas_IndigoEstampas/releases/download/v1.2.0/IndigoEstampas_Setup_1.2.0.exe",
-  "notes": "Mejoras en el sistema de tickets y temas de colores."
+  "version": "1.4.0",
+  "url": "https://github.com/EstebanD90/GestorVentas_IndigoEstampas/releases/download/v1.4.0/IndigoEstampas_Setup_1.4.0.exe",
+  "notes": "Nuevas funcionalidades: Catálogo PDF, Temas personalizados, Mejoras en ABM y corrección de errores."
 }

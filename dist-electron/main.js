@@ -27,7 +27,7 @@ function _mergeNamespaces(n, m) {
   return Object.freeze(Object.defineProperty(n, Symbol.toStringTag, { value: "Module" }));
 }
 const APP_NAME = "Indigo Estampas";
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.3.0";
 const UPDATE_URL = "https://raw.githubusercontent.com/EstebanD90/GestorVentas_IndigoEstampas/main/version.json";
 var commonjsGlobal = typeof globalThis !== "undefined" ? globalThis : typeof window !== "undefined" ? window : typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : {};
 function getDefaultExportFromCjs(x) {
@@ -2202,11 +2202,13 @@ const index = /* @__PURE__ */ _mergeNamespaces({
   default: fs
 }, [libExports]);
 const isDev = !app.isPackaged;
-const dbPath = isDev ? path.join(app.getAppPath(), "database.sqlite") : path.join(app.getPath("userData"), "database.sqlite");
+const dbName = isDev ? "database.dev.sqlite" : "database.prod.sqlite";
+const dbPath = isDev ? path.join(app.getAppPath(), dbName) : path.join(app.getPath("userData"), dbName);
 let db;
 function initDB() {
   db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
   db.exec(`
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2327,19 +2329,33 @@ function initDB() {
   }
 }
 const getProducts = () => db.prepare("SELECT * FROM products ORDER BY name").all();
-const addProduct = (p) => db.prepare("INSERT INTO products (name, description, price, cost, stock, min_stock, category, image_path) VALUES (@name, @description, @price, @cost, @stock, @min_stock, @category, @image_path)").run({ ...p, min_stock: p.min_stock || 5, category: p.category || "General" });
-const updateProduct = (p) => db.prepare("UPDATE products SET name=@name, description=@description, price=@price, cost=@cost, stock=@stock, min_stock=@min_stock, category=@category, image_path=@image_path WHERE id=@id").run({ ...p, min_stock: p.min_stock || 5, category: p.category || "General" });
-const deleteProduct = (id) => db.prepare("DELETE FROM products WHERE id = ?").run(id);
+const addProduct = (p) => db.prepare("INSERT INTO products (name, description, price, cost, stock, min_stock, category, image_path) VALUES (@name, @description, @price, @cost, @stock, @min_stock, @category, @image_path)").run({ ...p, min_stock: p.min_stock || 5, category: p.category || null });
+const updateProduct = (p) => db.prepare("UPDATE products SET name=@name, description=@description, price=@price, cost=@cost, stock=@stock, min_stock=@min_stock, category=@category, image_path=@image_path WHERE id=@id").run({ ...p, min_stock: p.min_stock || 5, category: p.category || null });
+const deleteProduct = (id) => {
+  const usage = db.prepare("SELECT COUNT(*) as count FROM sale_items WHERE product_id = ?").get(id);
+  if (usage.count > 0) {
+    throw new Error("No se puede eliminar el producto porque tiene ventas asociadas. Considere poner el stock en 0.");
+  }
+  return db.prepare("DELETE FROM products WHERE id = ?").run(id);
+};
 const getClients = () => db.prepare("SELECT * FROM clients ORDER BY name").all();
 const addClient = (c) => db.prepare("INSERT INTO clients (name, email, phone, address, balance) VALUES (@name, @email, @phone, @address, 0)").run(c);
 const updateClient = (c) => db.prepare("UPDATE clients SET name=@name, email=@email, phone=@phone, address=@address WHERE id=@id").run(c);
-const deleteClient = (id) => db.prepare("DELETE FROM clients WHERE id = ?").run(id);
+const deleteClient = (id) => {
+  const salesUsage = db.prepare("SELECT COUNT(*) as count FROM sales WHERE client_id = ?").get(id);
+  const paymentsUsage = db.prepare("SELECT COUNT(*) as count FROM client_payments WHERE client_id = ?").get(id);
+  if (salesUsage.count > 0 || paymentsUsage.count > 0) {
+    throw new Error("No se puede eliminar el cliente porque tiene ventas o pagos asociados.");
+  }
+  return db.prepare("DELETE FROM clients WHERE id = ?").run(id);
+};
 const getSuppliers = () => db.prepare("SELECT * FROM suppliers ORDER BY name").all();
 const addSupplier = (s) => db.prepare("INSERT INTO suppliers (name, email, phone, address) VALUES (@name, @email, @phone, @address)").run(s);
 const updateSupplier = (s) => db.prepare("UPDATE suppliers SET name=@name, email=@email, phone=@phone, address=@address WHERE id=@id").run(s);
 const deleteSupplier = (id) => db.prepare("DELETE FROM suppliers WHERE id = ?").run(id);
 const getExpenses = () => db.prepare("SELECT * FROM expenses ORDER BY date DESC").all();
 const addExpense = (e) => db.prepare("INSERT INTO expenses (description, amount, category, date) VALUES (@description, @amount, @category, @date)").run(e);
+const updateExpense = (e) => db.prepare("UPDATE expenses SET description=@description, amount=@amount, category=@category, date=@date WHERE id=@id").run(e);
 const deleteExpense = (id) => db.prepare("DELETE FROM expenses WHERE id = ?").run(id);
 const getSales = () => {
   return db.prepare(`
@@ -2537,6 +2553,7 @@ const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
 const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, "public") : RENDERER_DIST;
+app.setName(APP_NAME);
 const invoicesPath = path.join(app.getPath("documents"), APP_NAME, "Facturas");
 const assetsPath = path.join(app.getPath("documents"), APP_NAME, "Assets");
 const productImagesPath = path.join(app.getPath("documents"), APP_NAME, "Productos");
@@ -2550,7 +2567,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1200,
     height: 800,
-    icon: path.join(process.env.VITE_PUBLIC, "electron-vite.svg"),
+    icon: path.join(process.env.VITE_PUBLIC, "e-commerce.png"),
     webPreferences: {
       preload: path.join(__dirname$1, "preload.mjs")
     },
@@ -2593,6 +2610,7 @@ app.whenReady().then(() => {
   ipcMain.handle("delete-supplier", (_, id) => deleteSupplier(id));
   ipcMain.handle("get-expenses", () => getExpenses());
   ipcMain.handle("add-expense", (_, e) => addExpense(e));
+  ipcMain.handle("update-expense", (_, e) => updateExpense(e));
   ipcMain.handle("delete-expense", (_, id) => deleteExpense(id));
   ipcMain.handle("get-sales", () => getSales());
   ipcMain.handle("get-sale-items", (_, id) => getSaleItems(id));
@@ -2618,6 +2636,140 @@ app.whenReady().then(() => {
     const buffer = fs$2.readFileSync(filePath);
     const ext = path.extname(filePath).slice(1);
     return `data:image/${ext};base64,${buffer.toString("base64")}`;
+  });
+  ipcMain.handle("generate-catalog-pdf", async (_, products) => {
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 10);
+    const fileName = `Catalogo_Productos_${timestamp}.pdf`;
+    const fullPath = path.join(app.getPath("temp"), fileName);
+    const settings = getBusinessSettings();
+    const bizName = settings?.name || APP_NAME;
+    let logoBase64 = "";
+    if (settings?.logo_path && fs$2.existsSync(settings.logo_path)) {
+      const buffer = fs$2.readFileSync(settings.logo_path);
+      const ext = path.extname(settings.logo_path).slice(1);
+      logoBase64 = `data:image/${ext};base64,${buffer.toString("base64")}`;
+    }
+    const printWin = new BrowserWindow({
+      show: false,
+      webPreferences: { nodeIntegration: true }
+    });
+    const productsByCategory = {};
+    products.forEach((p) => {
+      const cat = p.category || "General";
+      if (!productsByCategory[cat]) productsByCategory[cat] = [];
+      productsByCategory[cat].push(p);
+    });
+    const categoriesHtml = Object.entries(productsByCategory).map(([category, items]) => `
+      <div class="category-section">
+        <h2 class="category-title">${category.toUpperCase()}</h2>
+        <div class="products-grid">
+          ${items.map((item) => `
+            <div class="product-card">
+              <div class="product-image-container">
+                ${item.image_base64 ? `<img src="${item.image_base64}" class="product-image" />` : `<div class="no-image">SIN IMAGEN</div>`}
+              </div>
+              <div class="product-info">
+                <div class="product-name">${item.name}</div>
+                <div class="product-price">$${item.price.toFixed(2)}</div>
+                <div class="product-stock ${item.stock <= (item.min_stock || 5) ? "stock-low" : ""}">
+                  Stock: ${item.stock} unidades
+                </div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    `).join("");
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            @page { margin: 10mm; size: A4; }
+            body { 
+              font-family: 'Segoe UI', sans-serif; 
+              margin: 0; padding: 20px; color: #333; background: #fff;
+            }
+            .header { text-align: center; margin-bottom: 40px; border-bottom: 3px solid #000; padding-bottom: 20px; }
+            .logo { max-width: 50mm; max-height: 30mm; margin-bottom: 10px; }
+            .biz-name { font-size: 32px; font-weight: bold; margin: 0; color: #000; }
+            .catalog-title { font-size: 18px; color: #666; margin-top: 5px; text-transform: uppercase; letter-spacing: 2px; }
+            
+            .category-section { margin-bottom: 40px; break-inside: avoid; }
+            .category-title { 
+              font-size: 22px; border-left: 5px solid #000; padding-left: 15px; 
+              margin-bottom: 20px; background: #f4f4f4; padding-top: 5px; padding-bottom: 5px;
+            }
+            
+            .products-grid { 
+              display: grid; 
+              grid-template-columns: repeat(3, 1fr); 
+              gap: 20px; 
+            }
+            
+            .product-card { 
+              border: 1px solid #eee; border-radius: 8px; overflow: hidden; 
+              display: flex; flex-direction: column; background: #fff;
+              break-inside: avoid;
+            }
+            
+            .product-image-container { 
+              width: 100%; height: 150px; background: #f9f9f9; 
+              display: flex; items-center: center; justify-content: center;
+              overflow: hidden; border-bottom: 1px solid #eee;
+            }
+            .product-image { width: 100%; height: 100%; object-fit: cover; }
+            .no-image { color: #ccc; font-size: 10px; font-weight: bold; }
+            
+            .product-info { padding: 12px; }
+            .product-name { font-weight: bold; font-size: 14px; margin-bottom: 5px; height: 34px; overflow: hidden; }
+            .product-price { font-size: 18px; font-weight: 800; color: #000; margin-bottom: 5px; }
+            .product-stock { font-size: 11px; color: #666; }
+            .stock-low { color: #ef4444; font-weight: bold; }
+            
+            .footer { 
+              text-align: center; margin-top: 50px; padding-top: 20px; 
+              border-top: 1px solid #eee; font-size: 12px; color: #666;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            ${logoBase64 ? `<img src="${logoBase64}" class="logo" />` : ""}
+            <h1 class="biz-name">${bizName}</h1>
+            <div class="catalog-title">Catálogo de Productos</div>
+            <div style="font-size: 12px; margin-top: 10px;">Generado el: ${(/* @__PURE__ */ new Date()).toLocaleDateString("es-AR")}</div>
+          </div>
+          
+          ${categoriesHtml}
+
+          <div class="footer">
+            <p>${settings?.address || ""} ${settings?.phone ? `| Tel: ${settings.phone}` : ""}</p>
+            <p>${settings?.footer_message || "¡Gracias por elegirnos!"}</p>
+          </div>
+        </body>
+      </html>
+    `;
+    printWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    return new Promise((resolve) => {
+      printWin.webContents.on("did-finish-load", async () => {
+        try {
+          const data = await printWin.webContents.printToPDF({
+            margins: { top: 0, bottom: 0, left: 0, right: 0 },
+            pageSize: "A4",
+            printBackground: true
+          });
+          fs$2.writeFileSync(fullPath, data);
+          printWin.close();
+          resolve({ success: true, path: fullPath, base64: data.toString("base64") });
+        } catch (error) {
+          console.error("Error generating PDF:", error);
+          printWin.close();
+          resolve({ success: false, error: String(error) });
+        }
+      });
+    });
   });
   ipcMain.handle("print-ticket", async (_, saleData) => {
     const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19);

@@ -16,6 +16,9 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 // Import app name and update URL from shared constants
 import { APP_NAME, UPDATE_URL, APP_VERSION } from '../src/constants';
 
+// Force Electron to use the App Name for paths
+app.setName(APP_NAME);
+
 // Create Facturas directory if not exists
 const invoicesPath = path.join(app.getPath('documents'), APP_NAME, 'Facturas');
 const assetsPath = path.join(app.getPath('documents'), APP_NAME, 'Assets');
@@ -32,7 +35,7 @@ import {
   getProducts, addProduct, updateProduct, deleteProduct,
   getClients, addClient, updateClient, deleteClient, registerClientPayment, getClientPayments, deleteClientPayment,
   getSuppliers, addSupplier, updateSupplier, deleteSupplier,
-  getExpenses, addExpense, deleteExpense,
+  getExpenses, addExpense, updateExpense, deleteExpense,
   createSale, getSales, getSaleItems, deleteSale, clearSalesHistory, getDashboardStats, backupDB, restoreDB, optimizeDB,
   getBusinessSettings, updateBusinessSettings
 } from './db';
@@ -43,7 +46,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1200,
     height: 800,
-    icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
+    icon: path.join(process.env.VITE_PUBLIC, 'e-commerce.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },
@@ -100,6 +103,7 @@ app.whenReady().then(() => {
   // Expenses
   ipcMain.handle('get-expenses', () => getExpenses());
   ipcMain.handle('add-expense', (_, e) => addExpense(e));
+  ipcMain.handle('update-expense', (_, e) => updateExpense(e));
   ipcMain.handle('delete-expense', (_, id) => deleteExpense(id));
 
   // Sales
@@ -133,6 +137,154 @@ app.whenReady().then(() => {
     const buffer = fs.readFileSync(filePath);
     const ext = path.extname(filePath).slice(1);
     return `data:image/${ext};base64,${buffer.toString('base64')}`;
+  });
+
+  // Generate Catalog PDF
+  ipcMain.handle('generate-catalog-pdf', async (_, products) => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 10);
+    const fileName = `Catalogo_Productos_${timestamp}.pdf`;
+    const fullPath = path.join(app.getPath('temp'), fileName); // Guardamos en temp para visualización
+
+    const settings = getBusinessSettings();
+    const bizName = settings?.name || APP_NAME;
+
+    let logoBase64 = '';
+    if (settings?.logo_path && fs.existsSync(settings.logo_path)) {
+      const buffer = fs.readFileSync(settings.logo_path);
+      const ext = path.extname(settings.logo_path).slice(1);
+      logoBase64 = `data:image/${ext};base64,${buffer.toString('base64')}`;
+    }
+
+    const printWin = new BrowserWindow({
+      show: false,
+      webPreferences: { nodeIntegration: true }
+    });
+
+    // Agrupar productos por categoría
+    const productsByCategory: Record<string, any[]> = {};
+    products.forEach((p: any) => {
+      const cat = p.category || 'General';
+      if (!productsByCategory[cat]) productsByCategory[cat] = [];
+      productsByCategory[cat].push(p);
+    });
+
+    const categoriesHtml = Object.entries(productsByCategory).map(([category, items]) => `
+      <div class="category-section">
+        <h2 class="category-title">${category.toUpperCase()}</h2>
+        <div class="products-grid">
+          ${items.map(item => `
+            <div class="product-card">
+              <div class="product-image-container">
+                ${item.image_base64 
+                  ? `<img src="${item.image_base64}" class="product-image" />`
+                  : `<div class="no-image">SIN IMAGEN</div>`
+                }
+              </div>
+              <div class="product-info">
+                <div class="product-name">${item.name}</div>
+                <div class="product-price">$${item.price.toFixed(2)}</div>
+                <div class="product-stock ${item.stock <= (item.min_stock || 5) ? 'stock-low' : ''}">
+                  Stock: ${item.stock} unidades
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `).join('');
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            @page { margin: 10mm; size: A4; }
+            body { 
+              font-family: 'Segoe UI', sans-serif; 
+              margin: 0; padding: 20px; color: #333; background: #fff;
+            }
+            .header { text-align: center; margin-bottom: 40px; border-bottom: 3px solid #000; padding-bottom: 20px; }
+            .logo { max-width: 50mm; max-height: 30mm; margin-bottom: 10px; }
+            .biz-name { font-size: 32px; font-weight: bold; margin: 0; color: #000; }
+            .catalog-title { font-size: 18px; color: #666; margin-top: 5px; text-transform: uppercase; letter-spacing: 2px; }
+            
+            .category-section { margin-bottom: 40px; break-inside: avoid; }
+            .category-title { 
+              font-size: 22px; border-left: 5px solid #000; padding-left: 15px; 
+              margin-bottom: 20px; background: #f4f4f4; padding-top: 5px; padding-bottom: 5px;
+            }
+            
+            .products-grid { 
+              display: grid; 
+              grid-template-columns: repeat(3, 1fr); 
+              gap: 20px; 
+            }
+            
+            .product-card { 
+              border: 1px solid #eee; border-radius: 8px; overflow: hidden; 
+              display: flex; flex-direction: column; background: #fff;
+              break-inside: avoid;
+            }
+            
+            .product-image-container { 
+              width: 100%; height: 150px; background: #f9f9f9; 
+              display: flex; items-center: center; justify-content: center;
+              overflow: hidden; border-bottom: 1px solid #eee;
+            }
+            .product-image { width: 100%; height: 100%; object-fit: cover; }
+            .no-image { color: #ccc; font-size: 10px; font-weight: bold; }
+            
+            .product-info { padding: 12px; }
+            .product-name { font-weight: bold; font-size: 14px; margin-bottom: 5px; height: 34px; overflow: hidden; }
+            .product-price { font-size: 18px; font-weight: 800; color: #000; margin-bottom: 5px; }
+            .product-stock { font-size: 11px; color: #666; }
+            .stock-low { color: #ef4444; font-weight: bold; }
+            
+            .footer { 
+              text-align: center; margin-top: 50px; padding-top: 20px; 
+              border-top: 1px solid #eee; font-size: 12px; color: #666;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            ${logoBase64 ? `<img src="${logoBase64}" class="logo" />` : ''}
+            <h1 class="biz-name">${bizName}</h1>
+            <div class="catalog-title">Catálogo de Productos</div>
+            <div style="font-size: 12px; margin-top: 10px;">Generado el: ${new Date().toLocaleDateString('es-AR')}</div>
+          </div>
+          
+          ${categoriesHtml}
+
+          <div class="footer">
+            <p>${settings?.address || ''} ${settings?.phone ? `| Tel: ${settings.phone}` : ''}</p>
+            <p>${settings?.footer_message || '¡Gracias por elegirnos!'}</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    
+    return new Promise((resolve) => {
+      printWin.webContents.on('did-finish-load', async () => {
+        try {
+          const data = await printWin.webContents.printToPDF({
+            margins: { top: 0, bottom: 0, left: 0, right: 0 },
+            pageSize: 'A4',
+            printBackground: true
+          });
+          fs.writeFileSync(fullPath, data);
+          printWin.close();
+          resolve({ success: true, path: fullPath, base64: data.toString('base64') });
+        } catch (error) {
+          console.error('Error generating PDF:', error);
+          printWin.close();
+          resolve({ success: false, error: String(error) });
+        }
+      });
+    });
   });
 
   // Print Ticket (Auto-save to PDF)

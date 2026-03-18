@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Plus, Search, Pencil, Trash2, Download, ImageIcon, X } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Plus, Search, Pencil, Trash2, Download, ImageIcon, X, BookOpen, Share2, Save } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Toast } from '@/components/ui/Toast';
 
@@ -8,6 +8,8 @@ export default function Products() {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
+  const [catalogPdf, setCatalogPdf] = useState<string | null>(null);
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -23,6 +25,8 @@ export default function Products() {
     category: 'General',
     image_path: ''
   });
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     loadProducts();
@@ -41,19 +45,22 @@ export default function Products() {
     setProducts(productsWithImages);
   }
 
-  const categories = Array.from(new Set(['General', ...products.map(p => p.category).filter(Boolean)]));
+  const categories = useMemo(() => {
+    const fromProducts = products.map(p => p.category).filter(Boolean);
+    return Array.from(new Set(['General', ...fromProducts])).sort();
+  }, [products]);
 
   async function handleOpenModal(product?: any) {
     if (product) {
       setEditingProduct(product);
       setFormData({
-        name: product.name,
+        name: product.name || '',
         description: product.description || '',
-        price: product.price.toString(),
-        cost: product.cost.toString(),
-        stock: product.stock.toString(),
+        price: (product.price || 0).toString(),
+        cost: (product.cost || 0).toString(),
+        stock: (product.stock || 0).toString(),
         min_stock: (product.min_stock || 5).toString(),
-        category: product.category || 'General',
+        category: product.category || '',
         image_path: product.image_path || ''
       });
       if (product.image_path) {
@@ -64,11 +71,19 @@ export default function Products() {
       }
     } else {
       setEditingProduct(null);
-      setFormData({ name: '', description: '', price: '', cost: '', stock: '', min_stock: '5', category: 'General', image_path: '' });
+      setFormData({ name: '', description: '', price: '', cost: '', stock: '', min_stock: '5', category: '', image_path: '' });
       setImagePreview(null);
     }
     setIsModalOpen(true);
   }
+
+  // Ensure Toast is always visible when set
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   async function handleSelectImage() {
     const path = await window.electronAPI.selectImage();
@@ -81,27 +96,43 @@ export default function Products() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const productData = {
-      ...formData,
-      price: parseFloat(formData.price),
-      cost: parseFloat(formData.cost),
-      stock: parseInt(formData.stock),
-      min_stock: parseInt(formData.min_stock)
-    };
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    
+    try {
+        const productData = {
+          ...formData,
+          price: parseFloat(formData.price) || 0,
+          cost: parseFloat(formData.cost) || 0,
+          stock: parseInt(formData.stock) || 0,
+          min_stock: parseInt(formData.min_stock) || 5
+        };
 
-    if (editingProduct) {
-      await window.electronAPI.updateProduct({ ...productData, id: editingProduct.id });
-    } else {
-      await window.electronAPI.addProduct(productData);
+        if (editingProduct) {
+          await window.electronAPI.updateProduct({ ...productData, id: editingProduct.id });
+          setToast({ message: 'Producto actualizado correctamente', type: 'success' });
+        } else {
+          await window.electronAPI.addProduct(productData);
+          setToast({ message: 'Producto creado correctamente', type: 'success' });
+        }
+        setIsModalOpen(false);
+        loadProducts();
+    } catch (error: any) {
+        setToast({ message: error.message || 'Error al guardar el producto', type: 'error' });
+    } finally {
+        setIsSubmitting(false);
     }
-    setIsModalOpen(false);
-    loadProducts();
   }
 
   async function handleDelete(id: number) {
     if (confirm('¿Estás seguro de eliminar este producto?')) {
-      await window.electronAPI.deleteProduct(id);
-      loadProducts();
+      try {
+        const result = await window.electronAPI.deleteProduct(id);
+        loadProducts();
+        setToast({ message: 'Producto eliminado', type: 'success' });
+      } catch (error: any) {
+        setToast({ message: error.message || 'Error al eliminar el producto', type: 'error' });
+      }
     }
   }
 
@@ -129,6 +160,24 @@ export default function Products() {
     }
   }
 
+  async function handleGenerateCatalog() {
+    // Solo productos con stock > 0
+    const availableProducts = products.filter(p => p.stock > 0);
+    if (availableProducts.length === 0) {
+      setToast({ message: 'No hay productos con stock para el catálogo', type: 'error' });
+      return;
+    }
+
+    setToast({ message: 'Generando catálogo...', type: 'success' });
+    const result = await window.electronAPI.generateCatalogPDF(availableProducts);
+    if (result.success) {
+      setCatalogPdf(result.base64);
+      setIsCatalogModalOpen(true);
+    } else {
+      setToast({ message: 'Error al generar catálogo', type: 'error' });
+    }
+  }
+
   return (
     <div className="space-y-6">
       {toast && (
@@ -141,6 +190,13 @@ export default function Products() {
       <div className="flex justify-between items-center">
         <h2 className="text-3xl font-bold tracking-tight">Productos</h2>
         <div className="flex gap-2">
+            <button 
+              onClick={handleGenerateCatalog}
+              className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors shadow-sm"
+              title="Generar Catálogo PDF"
+            >
+              <BookOpen size={20} /> Catálogo
+            </button>
             <button 
               onClick={handleExport}
               className="flex items-center gap-2 bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors"
@@ -315,6 +371,7 @@ export default function Products() {
                         <input 
                         required
                         type="number" 
+                        step="1"
                         value={formData.stock}
                         onChange={(e) => setFormData({...formData, stock: e.target.value})}
                         className="w-full px-3 py-2 border rounded-md bg-background focus:ring-2 focus:ring-primary focus:border-transparent outline-none"
@@ -362,6 +419,7 @@ export default function Products() {
               <input 
                 required
                 type="number" 
+                step="1"
                 value={formData.min_stock}
                 onChange={(e) => setFormData({...formData, min_stock: e.target.value})}
                 className="w-full px-3 py-2 border rounded-md bg-background focus:ring-2 focus:ring-primary focus:border-transparent outline-none"
@@ -379,12 +437,73 @@ export default function Products() {
             </button>
             <button 
               type="submit"
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+              disabled={isSubmitting}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {editingProduct ? 'Actualizar' : 'Crear'} Producto
+              <Save size={18} /> {isSubmitting ? 'Guardando...' : 'Guardar'}
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        isOpen={isCatalogModalOpen}
+        onClose={() => setIsCatalogModalOpen(false)}
+        title="Catálogo de Productos"
+        maxWidth="max-w-5xl"
+      >
+        <div className="space-y-4">
+          <div className="flex justify-between items-center bg-muted/50 p-3 rounded-lg border">
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  const link = document.createElement('a');
+                  link.href = `data:application/pdf;base64,${catalogPdf}`;
+                  link.download = `Catalogo_Indigo_Estampas_${new Date().toISOString().slice(0,10)}.pdf`;
+                  link.click();
+                }}
+                className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-all text-sm font-medium"
+              >
+                <Download size={18} /> Descargar PDF
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  const subject = encodeURIComponent('Catálogo de Productos - Indigo Estampas');
+                  const body = encodeURIComponent('Hola! Te adjunto nuestro catálogo de productos actualizado.');
+                  window.open(`mailto:?subject=${subject}&body=${body}`);
+                }}
+                className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-all text-sm font-medium"
+              >
+                Compartir Email
+              </button>
+              <button
+                onClick={() => {
+                  const text = encodeURIComponent('Hola! Te envío nuestro catálogo de productos: ');
+                  window.open(`https://wa.me/?text=${text}`);
+                }}
+                className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 transition-all text-sm font-medium"
+              >
+                <Share2 size={18} /> WhatsApp
+              </button>
+            </div>
+          </div>
+          
+          <div className="w-full h-[70vh] rounded-lg overflow-hidden border bg-muted">
+            {catalogPdf && (
+              <iframe
+                src={`data:application/pdf;base64,${catalogPdf}#toolbar=0&navpanes=0&scrollbar=0`}
+                className="w-full h-full"
+                title="Catálogo PDF"
+              />
+            )}
+          </div>
+          
+          <p className="text-xs text-center text-muted-foreground italic">
+            Nota: Para compartir por WhatsApp o Email, descarga primero el archivo y luego adjúntalo en la aplicación correspondiente.
+          </p>
+        </div>
       </Modal>
     </div>
   );

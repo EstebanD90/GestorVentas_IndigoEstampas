@@ -103,6 +103,61 @@
     --border: 262 30% 85%;
     --foreground: 262 50% 10%;
   }
+
+  .theme-neutral {
+    /* Basado en AdobeColor-Neutral Palette 13 */
+    --primary: 210 60% 40%; /* Azul #2E669A */
+    --primary-foreground: 0 0% 100%;
+    --background: 36 15% 95%; /* Fondo muy claro basado en el beige #B0A48F */
+    --card: 0 0% 100%;
+    --muted: 100 30% 90%; /* Verde muy suave */
+    --border: 36 15% 85%;
+    --foreground: 0 0% 0%; /* Negro #000000 */
+  }
+
+  .theme-natural {
+    /* Basado en AdobeColor-natural beauty elegantly designed */
+    --primary: 145 30% 45%; /* Verde #C0DFB7 ajustado */
+    --primary-foreground: 145 30% 10%;
+    --background: 48 100% 96%; /* Amarillo muy claro #FAF4D0 */
+    --card: 0 0% 100%;
+    --muted: 7 60% 94%; /* Rosa suave #FBDD5 */
+    --border: 145 30% 85%;
+    --foreground: 145 30% 15%;
+  }
+
+  .theme-otonal {
+    /* Basado en AdobeColor-Neutral Palette */
+    --primary: 7 54% 42%; /* Rojo tierra #A63B32 */
+    --primary-foreground: 0 0% 100%;
+    --background: 38 100% 96%; /* Crema #FFD98F claro */
+    --card: 0 0% 100%;
+    --muted: 88 25% 90%; /* Verde seco suave #BCD9B4 */
+    --border: 16 60% 85%;
+    --foreground: 7 54% 15%;
+  }
+
+  .theme-peach {
+    /* Basado en AdobeColor-Copy of Peach Aqua Neutral Bath Palette */
+    --primary: 16 100% 51%; /* Naranja #F26513 */
+    --primary-foreground: 0 0% 100%;
+    --background: 188 30% 95%; /* Aqua muy claro #548D95 */
+    --card: 0 0% 100%;
+    --muted: 30 60% 94%; /* Durazno suave #ECC199 */
+    --border: 188 30% 85%;
+    --foreground: 188 40% 15%;
+  }
+
+  .theme-pastel {
+    /* Basado en AdobeColor-feminine neutral palette 2 */
+    --primary: 255 30% 53%; /* Violeta #7365A6 */
+    --primary-foreground: 0 0% 100%;
+    --background: 300 100% 97%; /* Rosa muy claro #F5B0F0 */
+    --card: 0 0% 100%;
+    --muted: 25 60% 92%; /* Piel suave #F2CCB6 */
+    --border: 255 20% 85%;
+    --foreground: 255 30% 15%;
+  }
 }
 
 @theme {
